@@ -1,68 +1,37 @@
-# Lore
+# Lore Lite
 
-**Intent execution substrate for autonomous codebases.**
+**The minimal intent execution substrate for autonomous codebases.**
 
-Lore is a shared blackboard with a knowledge graph that emits events, versioned in git. It gives autonomous agents memory, coordination, and continuity on a codebase.
+Lore Lite is a CLI tool and local web UI that gives autonomous agents and humans a shared coordination layer, stored entirely in git refs. No database, no server, no merge conflicts on ticket state. `git clone` transfers everything.
 
-It is not a ticketing system. It is not an agent orchestration framework. It is the layer between human intent and agent execution.
-
----
-
-## The Problem
-
-Autonomous agents acting on codebases have no shared substrate. They are capable in isolation and chaotic at scale.
-
-- Every agent run starts cold — no memory of what failed, what was decided, or why the code is the way it is.
-- Multiple agents claim overlapping files with no awareness of each other.
-- There is no middle ground between reviewing everything and trusting blindly.
-- Intent evaporates when the prompt window closes.
-
-Lore solves all four.
+It is not a ticketing system. It is the layer between human intent and agent execution.
 
 ---
 
-## What Lore Is
+## How It Works
 
-### Versioned Intent Store
-
-Tickets live in `refs/tickets/` — a separate ref namespace in the git object store, orthogonal to branches. No merge conflicts on ticket state. `git clone` transfers the complete ticket history.
+Tickets live in `refs/tickets/` — a separate ref namespace in the git object store, orthogonal to branches.
 
 ```
-refs/tickets/open/fix-auth-timeout
-refs/tickets/closed/2026-03/fix-session-drop
-refs/tickets/graph
-refs/tickets/policy
-refs/tickets/questions/q-014
+refs/tickets/open/<id>        ← ticket: id, description, status, thread
+refs/tickets/done/<id>        ← closed tickets
+refs/tickets/questions/<qid>  ← open questions index
+refs/tickets/policy           ← merge thresholds and config
 ```
 
-### Knowledge Graph
+Every ticket has a **thread** — an append-only sequence of entries (updates, questions, answers, images) written by agents and humans over the life of the ticket. The thread is the execution history.
 
-Computed relationships between everything on the blackboard: which tickets touch the same files, describe similar intent, have co-failed historically, block each other, or collectively imply a structural change nobody named yet. Updated incrementally on every state change.
-
-### Event Emitter
-
-Every state change emits a structured JSON event. Any agentic loop or integration tool is built by consuming this stream.
-
-```json
-{ "type": "ticket.created",      "ticket": "fix-auth-timeout",  "ts": "..." }
-{ "type": "question.asked",      "ticket": "fix-auth-timeout",  "question_id": "q-014", "ts": "..." }
-{ "type": "ticket.merged",       "ticket": "fix-auth-timeout",  "ts": "..." }
-{ "type": "regression.detected", "dimension": "test_coverage",  "delta": -0.03, "ts": "..." }
-```
+Every state change emits a structured JSON event. The event log is a file; `lore events --follow` tails it.
 
 ---
 
 ## Install
 
 ```sh
-# Homebrew
-brew install loreteam/tap/lore
-
-# From source
 go install github.com/loreteam/lore@latest
 ```
 
-Requires Go 1.23+. Single static binary, no CGO.
+Requires Go 1.25+. Single static binary, no CGO.
 
 ---
 
@@ -72,29 +41,30 @@ Requires Go 1.23+. Single static binary, no CGO.
 # Initialize Lore in a git repository
 lore init
 
+# Open the web UI (http://localhost:7890)
+lore ui
+
 # Create a ticket
 lore new "fix auth timeout on long sessions"
 
 # List open tickets
 lore list
 
-# Claim a ticket (agent takes ownership)
-lore claim fix-auth-timeout
+# Claim a ticket (atomic — prevents two agents taking the same one)
+lore claim <id>
 
-# Append to the execution trace (no git side effect)
-lore update fix-auth-timeout "investigated token refresh path, found stale TTL config"
-
-# Record structured progress against acceptance criteria
-lore checkpoint fix-auth-timeout
+# Append a progress note
+lore update <id> "investigated token refresh path, found stale TTL config"
 
 # Ask a blocking question
-lore ask fix-auth-timeout "should we extend the TTL or add a refresh endpoint?"
+lore ask <id> "should we extend the TTL or add a refresh endpoint?" --block
 
-# Answer a question
-lore answer q-014 "extend the TTL to 24h for now, revisit with refresh endpoint in v2"
+# Mark work ready for human review
+lore ready <id>
 
-# Close a ticket
-lore close fix-auth-timeout
+# Approve or reject
+lore approve <id>
+lore reject <id> --reason "needs tests"
 
 # Follow the event stream
 lore events --follow
@@ -102,73 +72,118 @@ lore events --follow
 
 ---
 
-## Core Commands
+## Commands
+
+### Read / Write
+
+| Command | Description |
+|---|---|
+| `lore new` | Create a ticket |
+| `lore show <id>` | Full ticket: description, status, complete thread |
+| `lore list` | List tickets, filterable by status |
+| `lore list --closed` | Include done tickets |
+| `lore search --query "..."` | Search across all ticket descriptions |
+
+### Agent Operations
+
+| Command | Description |
+|---|---|
+| `lore claim <id>` | Atomic claim — prevents two agents taking the same ticket |
+| `lore update <id> "..."` | Append a free-form update to the thread |
+| `lore update <id> --image <path>` | Attach an image; stored as a git blob |
+| `lore ask <id> "..."` | Append a question; `--block` to block the ticket |
+| `lore answer <id> --question-id <qid> "..."` | Answer an open question |
+| `lore block <id> "reason"` | Mark ticket blocked with a reason |
+| `lore ready <id>` | Signal work is done; sets status to `ready-for-review` |
+| `lore done <id>` | Mark ticket done |
+| `lore spawn <id> --from "..."` | Create a child ticket |
+
+### Coordination (Lead + Human)
+
+| Command | Description |
+|---|---|
+| `lore assign <id> --agent <name>` | Assign ticket to a specific agent |
+| `lore unblock <id>` | Clear a block; sets status back to `working` |
+| `lore approve <id>` | Approve a ready-for-review ticket |
+| `lore reject <id> --reason "..."` | Reject; ticket returns to `working` |
+
+### Setup + UI
 
 | Command | Description |
 |---|---|
 | `lore init` | Initialize Lore in the current git repo |
-| `lore new` | Create a new ticket |
-| `lore list` | List tickets (filterable by status, tag, agent) |
-| `lore show` | Show full ticket detail |
-| `lore claim` | Claim a ticket for execution |
-| `lore update` | Append to execution trace (lightweight, no git commit) |
-| `lore checkpoint` | Record structured criteria progress |
-| `lore close` | Close a ticket with outcome summary |
-| `lore ask` | Ask a question on a ticket |
-| `lore answer` | Answer an open question |
-| `lore escalate` | Escalate a blocked ticket to human |
-| `lore pick` | Let Lore select the highest-priority ticket for an agent |
-| `lore graph` | Query the knowledge graph |
-| `lore related` | Show tickets related to a given ticket |
-| `lore prioritize` | Show priority-ranked ticket queue |
-| `lore review` | Trigger risk-scored merge review |
-| `lore approve` / `lore reject` | Approve or reject a ticket for merge |
-| `lore consolidate` | Cluster and deduplicate similar tickets |
-| `lore events` | Tail the event log |
-| `lore context` | Emit full agent context for a ticket (for prompt injection) |
+| `lore doctor` | Check that the environment is correctly configured |
+| `lore ui` | Start the local web UI (default port 7890) |
+| `lore events --follow` | Stream the event log |
 
 ---
 
-## Agent Integration
+## Web UI
 
-Lore exposes a JSON event stream and a context command designed for agent integration:
+`lore ui` starts a local web server at `http://localhost:7890`. Agents use the CLI; humans use the UI.
 
-```sh
-# Get structured context for prompt injection
-lore context fix-auth-timeout --json
+**Review dashboard** — the default landing page. Shows everything that needs human attention: open questions, tickets ready for review, blocked tickets. Answer questions inline, approve or reject without leaving the page.
 
-# Watch for events to trigger agent actions
-lore events --follow --json | your-agent-loop
-```
+**Ticket list** — all tickets, filterable by status (open / working / blocked / ready / done).
 
-Agent skill templates ship with Lore and are installed into the repo on `lore init`:
+**Ticket detail** — the full thread rendered chronologically. Images inline. Action bar at the bottom for updates, image attachments, approve/reject/unblock.
 
-- `.lore/skills/lore-lead.md` — Lead agent: assigns tickets, never codes
-- `.lore/skills/lore-worker.md` — Worker agent: executes tickets
-- `.lore/skills/lore-observer.md` — Observer agent: continuous improvement mode
+**New ticket** — free-form description with drag-and-drop image attachment.
+
+**Search** — substring search across all ticket descriptions.
+
+**Event log** — live SSE stream of all system events, color-coded by type. Pause/resume auto-scroll.
+
+The UI binds to `localhost` only. Static assets are embedded in the binary — no install step.
 
 ---
 
-## Policy and Risk
+## Status Values
 
-Merge policy is stored in `refs/tickets/policy`. Risk is computed from blast radius, file heat, and historical failure signals — not commit volume. Humans approve what warrants judgment.
+| Status | Meaning |
+|---|---|
+| `open` | Created, not yet claimed |
+| `working` | Claimed by an agent |
+| `blocked` | Agent is waiting on something |
+| `ready-for-review` | Agent submitted work for human review |
+| `done` | Closed |
+
+---
+
+## Images
+
+Humans and agents can attach images to any ticket thread — screenshots, diagrams, annotated UI states.
 
 ```sh
-lore policy show
-lore policy edit
-lore score fix-auth-timeout   # compute risk score
+lore update <id> --image ./screenshots/error-modal.png
+lore update <id> --image ./arch-diagram.png "flow we need to preserve"
 ```
+
+Images are stored as git blobs. The thread entry records the blob hash and optional caption. `lore show --json` delivers images as base64 in the context payload for Claude agents.
 
 ---
 
 ## Design Principles
 
-- **Git refs, not files** — no merge conflicts, full portability, clone transfers everything
+- **Git refs, not files** — no merge conflicts, full portability, `git clone` transfers everything
 - **Blackboard architecture** — agents coordinate through shared state, not peer-to-peer conversation
-- **Events as the contract** — Lore does not implement the agentic loop; it emits events
-- **Emergent priority** — computed from dependency depth, failure history, file heat, age/drift, and blast radius
-- **Questions as first-class operations** — blocking, non-blocking, and AI-resolved variants
-- **Split storage** — stubs and summaries in git refs; large logs and embeddings in external store
+- **Events as the contract** — Lore emits events; it does not implement the agentic loop
+- **Humans in the loop** — review dashboard and inline actions make human oversight low-friction
+- **No dependencies** — single static binary, no database, no server, no external services
+
+---
+
+## What Is Not in v1
+
+Deliberately deferred until real usage data justifies the complexity:
+
+- Knowledge graph and semantic index
+- Priority scoring and blast radius computation
+- `lore run` worker loop (depends on validated skill templates — deferred to v2)
+- Agent skill file installation (`lore init` does not write skill files in v1)
+- Consolidation and improvement mode
+
+See [lore-lite.md](lore-lite.md) for the full v1 spec and v2 roadmap.
 
 ---
 
