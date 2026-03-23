@@ -2,6 +2,7 @@ package ticket
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,84 +13,88 @@ import (
 type Status string
 
 const (
-	StatusOpen       Status = "open"
-	StatusInProgress Status = "in-progress"
-	StatusBlocked    Status = "blocked"
-	StatusReady      Status = "ready"
-	StatusClosed     Status = "closed"
+	StatusOpen            Status = "open"
+	StatusWorking         Status = "working"
+	StatusBlocked         Status = "blocked"
+	StatusReadyForReview  Status = "ready-for-review"
+	StatusDone            Status = "done"
 )
-
-// QuestionType classifies the kind of question an agent is asking.
-type QuestionType string
-
-const (
-	QuestionTypeClarification   QuestionType = "clarification"
-	QuestionTypeConstraintCheck QuestionType = "constraint_check"
-	QuestionTypeKnowledgeGap    QuestionType = "knowledge_gap"
-	QuestionTypeValidation      QuestionType = "validation"
-)
-
-// ValidQuestionType reports whether qt is a known question type.
-func ValidQuestionType(qt QuestionType) bool {
-	switch qt {
-	case QuestionTypeClarification, QuestionTypeConstraintCheck,
-		QuestionTypeKnowledgeGap, QuestionTypeValidation:
-		return true
-	}
-	return false
-}
-
-// Checkpoint is a timestamped progress note recorded by an agent.
-type Checkpoint struct {
-	Timestamp time.Time `yaml:"ts"`
-	Message   string    `yaml:"msg"`
-}
-
-// Question is an async question an agent raises on a ticket.
-type Question struct {
-	ID         string       `yaml:"id"`
-	Type       QuestionType `yaml:"type"`
-	Text       string       `yaml:"text"`
-	Blocking   bool         `yaml:"blocking"`
-	Assumption string       `yaml:"assumption,omitempty"`
-	DirectedTo string       `yaml:"directed_to,omitempty"`
-	Answer     string       `yaml:"answer,omitempty"`
-	AnsweredBy string       `yaml:"answered_by,omitempty"`
-	AskedAt    time.Time    `yaml:"asked_at"`
-	AnsweredAt *time.Time   `yaml:"answered_at,omitempty"`
-}
-
-// Ticket is the core data type stored in git object storage.
-type Ticket struct {
-	ID          string         `yaml:"id"`
-	Title       string         `yaml:"title"`
-	Description string         `yaml:"description,omitempty"`
-	Status      Status         `yaml:"status"`
-	Priority    int            `yaml:"priority"`
-	Files       []string       `yaml:"files,omitempty"`
-	Agent       string         `yaml:"agent,omitempty"`
-	Parent      string         `yaml:"parent,omitempty"`
-	BlockReason string         `yaml:"block_reason,omitempty"`
-	Attempts    int            `yaml:"attempts,omitempty"`
-	Checkpoints []Checkpoint   `yaml:"checkpoints,omitempty"`
-	Questions   []Question     `yaml:"questions,omitempty"`
-	Metadata    map[string]any `yaml:"metadata,omitempty"`
-	CreatedAt   time.Time      `yaml:"created_at"`
-	UpdatedAt   time.Time      `yaml:"updated_at"`
-}
 
 // ValidStatus reports whether s is a known ticket status.
 func ValidStatus(s Status) bool {
 	switch s {
-	case StatusOpen, StatusInProgress, StatusBlocked, StatusReady, StatusClosed:
+	case StatusOpen, StatusWorking, StatusBlocked, StatusReadyForReview, StatusDone:
 		return true
 	}
 	return false
 }
 
-// Ref returns the git ref path for a ticket ID.
-func Ref(id string) string {
-	return "refs/tickets/t/" + id
+// EntryKind classifies a thread entry.
+type EntryKind string
+
+const (
+	EntryKindUpdate   EntryKind = "update"
+	EntryKindQuestion EntryKind = "question"
+	EntryKindAnswer   EntryKind = "answer"
+	EntryKindComment  EntryKind = "comment"
+	EntryKindImage    EntryKind = "image"
+)
+
+// ThreadEntry is a single append-only entry in a ticket's thread.
+// Stored as a JSON blob in git object storage; referenced by SHA from the ticket.
+type ThreadEntry struct {
+	ID         string    `json:"id"`
+	Kind       EntryKind `json:"kind"`
+	Author     string    `json:"author"`
+	Timestamp  time.Time `json:"ts"`
+	Text       string    `json:"text,omitempty"`
+	QuestionID string    `json:"question_id,omitempty"` // for answer entries
+	ImageSHA   string    `json:"image_sha,omitempty"`   // for image entries
+	ImageMIME  string    `json:"image_mime,omitempty"`  // for image entries
+	Caption    string    `json:"caption,omitempty"`     // for image entries
+}
+
+// MarshalEntry serializes a thread entry to JSON bytes.
+func MarshalEntry(e *ThreadEntry) ([]byte, error) {
+	return json.Marshal(e)
+}
+
+// UnmarshalEntry deserializes a thread entry from JSON bytes.
+func UnmarshalEntry(data []byte) (*ThreadEntry, error) {
+	var e ThreadEntry
+	if err := json.Unmarshal(data, &e); err != nil {
+		return nil, fmt.Errorf("ticket: unmarshal entry: %w", err)
+	}
+	return &e, nil
+}
+
+// Ticket is the core data type stored in git object storage.
+// Thread holds an ordered list of git blob SHAs, each pointing to a ThreadEntry.
+type Ticket struct {
+	ID          string    `yaml:"id"`
+	Desc        string    `yaml:"desc"`
+	Status      Status    `yaml:"status"`
+	Agent       string    `yaml:"agent,omitempty"`
+	Parent      string    `yaml:"parent,omitempty"`
+	BlockReason string    `yaml:"block_reason,omitempty"`
+	Thread      []string  `yaml:"thread,omitempty"` // ordered list of entry blob SHAs
+	CreatedAt   time.Time `yaml:"created_at"`
+	UpdatedAt   time.Time `yaml:"updated_at"`
+}
+
+// OpenRef returns the git ref path for an open/active ticket.
+func OpenRef(id string) string {
+	return "refs/tickets/open/" + id
+}
+
+// DoneRef returns the git ref path for a closed ticket.
+func DoneRef(id string) string {
+	return "refs/tickets/done/" + id
+}
+
+// QuestionRef returns the git ref path for a question index entry.
+func QuestionRef(qid string) string {
+	return "refs/tickets/questions/" + qid
 }
 
 // NewID generates a random 12-hex-char ticket ID.
@@ -108,6 +113,15 @@ func NewQuestionID() (string, error) {
 		return "", fmt.Errorf("ticket: generate question id: %w", err)
 	}
 	return fmt.Sprintf("q-%x", b), nil
+}
+
+// NewEntryID generates a random entry ID of the form "e-XXXXXX".
+func NewEntryID() (string, error) {
+	b := make([]byte, 3)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("ticket: generate entry id: %w", err)
+	}
+	return fmt.Sprintf("e-%x", b), nil
 }
 
 // Marshal serializes a ticket to YAML bytes.

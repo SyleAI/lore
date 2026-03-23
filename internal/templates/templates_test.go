@@ -12,17 +12,15 @@ import (
 )
 
 func TestRenderPromptEmbeddedFallback(t *testing.T) {
-	result, err := templates.RenderPrompt("consolidate-classify", "", map[string]any{
-		"Strength": 0.85,
+	result, err := templates.RenderPrompt("search", "", map[string]any{
+		"Query": "auth timeout",
 		"Tickets": []map[string]string{
-			{"ID": "abc123", "Title": "Fix login bug"},
-			{"ID": "def456", "Title": "Fix authentication issue"},
+			{"ID": "abc123", "Status": "open", "Content": "Fix login bug"},
 		},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, result, "0.85")
+	assert.Contains(t, result, "auth timeout")
 	assert.Contains(t, result, "abc123")
-	assert.Contains(t, result, "Fix login bug")
 }
 
 func TestRenderPromptUserOverride(t *testing.T) {
@@ -48,19 +46,18 @@ func TestRenderPromptUserOverrideTakesPrecedence(t *testing.T) {
 	promptsDir := filepath.Join(loreDir, "prompts")
 	require.NoError(t, os.MkdirAll(promptsDir, 0755))
 
-	// Override the embedded consolidate-classify template.
-	override := "OVERRIDDEN: {{ .Strength }}"
+	override := "OVERRIDDEN: {{ .Query }}"
 	require.NoError(t, os.WriteFile(
-		filepath.Join(promptsDir, "consolidate-classify.md"),
+		filepath.Join(promptsDir, "search.md"),
 		[]byte(override), 0644,
 	))
 
-	result, err := templates.RenderPrompt("consolidate-classify", loreDir, map[string]any{
-		"Strength": 0.9,
-		"Tickets":  []any{},
+	result, err := templates.RenderPrompt("search", loreDir, map[string]any{
+		"Query":   "test query",
+		"Tickets": []any{},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "OVERRIDDEN: 0.9", result)
+	assert.Equal(t, "OVERRIDDEN: test query", result)
 }
 
 func TestRenderPromptUnknownName(t *testing.T) {
@@ -71,8 +68,7 @@ func TestRenderPromptUnknownName(t *testing.T) {
 
 func TestPromptNames(t *testing.T) {
 	names := templates.PromptNames()
-	assert.Contains(t, names, "consolidate-classify")
-	assert.Contains(t, names, "consolidate-find-groups")
+	assert.Contains(t, names, "search")
 	for _, n := range names {
 		assert.False(t, strings.HasSuffix(n, ".md"), "names should not include .md extension")
 	}

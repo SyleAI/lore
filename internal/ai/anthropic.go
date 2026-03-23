@@ -34,66 +34,6 @@ func doPost(url string, headers map[string]string, reqBody []byte) ([]byte, erro
 	return body, nil
 }
 
-// voyageEmbedder calls the Voyage AI embeddings API.
-// API key is read from VOYAGE_API_KEY, falling back to ANTHROPIC_API_KEY.
-type voyageEmbedder struct {
-	model  string
-	apiKey string
-}
-
-func newVoyageEmbedder(model string) *voyageEmbedder {
-	if model == "" {
-		model = "voyage-3"
-	}
-	apiKey := os.Getenv("VOYAGE_API_KEY")
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-	return &voyageEmbedder{model: model, apiKey: apiKey}
-}
-
-func (v *voyageEmbedder) Embed(texts []string) ([]Embedding, error) {
-	if v.apiKey == "" {
-		return nil, fmt.Errorf("ai: voyage: VOYAGE_API_KEY or ANTHROPIC_API_KEY required")
-	}
-
-	reqBody, err := json.Marshal(map[string]any{
-		"model": v.model,
-		"input": texts,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: voyage: marshal request: %w", err)
-	}
-
-	respBody, err := doPost(
-		"https://api.voyageai.com/v1/embeddings",
-		map[string]string{"Authorization": "Bearer " + v.apiKey},
-		reqBody,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("ai: voyage: %w", err)
-	}
-
-	var result struct {
-		Data []struct {
-			Index     int       `json:"index"`
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("ai: voyage: parse response: %w", err)
-	}
-
-	embeddings := make([]Embedding, len(texts))
-	for _, d := range result.Data {
-		if d.Index >= len(embeddings) {
-			return nil, fmt.Errorf("ai: voyage: unexpected index %d", d.Index)
-		}
-		embeddings[d.Index] = Embedding(d.Embedding)
-	}
-	return embeddings, nil
-}
-
 // anthropicCompleter calls the Anthropic Messages API.
 type anthropicCompleter struct {
 	model     string

@@ -1,33 +1,32 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/loreteam/lore/internal/event"
+	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
 
 var (
 	answerQuestionID string
-	answerText       string
 	answerFrom       string
 )
 
 var answerCmd = &cobra.Command{
-	Use:   "answer <ticket-id>",
+	Use:   "answer <ticket-id> <answer-text>",
 	Short: "Answer a question on a ticket",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.ExactArgs(2),
 	RunE:  runAnswer,
 }
 
 func init() {
 	answerCmd.Flags().StringVar(&answerQuestionID, "question-id", "", "ID of the question to answer")
-	answerCmd.Flags().StringVar(&answerText, "text", "", "answer text")
 	answerCmd.Flags().StringVar(&answerFrom, "from", "", "agent or human answering (defaults to config agent_id or hostname)")
 	_ = answerCmd.MarkFlagRequired("question-id")
-	_ = answerCmd.MarkFlagRequired("text")
 	rootCmd.AddCommand(answerCmd)
 }
 
@@ -39,33 +38,78 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	}
 
 	id := args[0]
+	answerText := args[1]
 	from := agentID(ctx, answerFrom)
 
-	t, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
-		for i := range t.Questions {
-			if t.Questions[i].ID != answerQuestionID {
-				continue
-			}
-			if t.Questions[i].AnsweredAt != nil {
-				return fmt.Errorf("question %s is already answered", answerQuestionID)
-			}
-			now := time.Now().UTC()
-			t.Questions[i].Answer = answerText
-			t.Questions[i].AnsweredBy = from
-			t.Questions[i].AnsweredAt = &now
-
-			if t.Questions[i].Blocking && t.Status == ticket.StatusBlocked {
-				if !hasUnansweredBlockingQuestions(t, answerQuestionID) {
-					t.Status = ticket.StatusInProgress
-					t.BlockReason = ""
-				}
-			}
-			return nil
-		}
-		return fmt.Errorf("question %s not found on ticket %s", answerQuestionID, id)
-	})
+	t, err := loadTicket(ctx, gitRoot, id)
 	if err != nil {
 		return fmt.Errorf("lore answer: %w", err)
+	}
+
+	// Verify the question exists in the questions index.
+	qRef := ticket.QuestionRef(answerQuestionID)
+	qSHA, err := gitcmd.ReadRef(ctx, gitRoot, qRef)
+	if err != nil {
+		return fmt.Errorf("lore answer: question %s not found", answerQuestionID)
+	}
+	qData, err := gitcmd.ReadBlob(ctx, gitRoot, qSHA)
+	if err != nil {
+		return fmt.Errorf("lore answer: read question: %w", err)
+	}
+	var qRecord struct {
+		QID      string `json:"qid"`
+		TicketID string `json:"ticket_id"`
+		Answered bool   `json:"answered"`
+	}
+	if err := json.Unmarshal(qData, &qRecord); err != nil {
+		return fmt.Errorf("lore answer: parse question record: %w", err)
+	}
+	if qRecord.TicketID != id {
+		return fmt.Errorf("lore answer: question %s belongs to ticket %s, not %s", answerQuestionID, qRecord.TicketID, id)
+	}
+	if qRecord.Answered {
+		return fmt.Errorf("lore answer: question %s is already answered", answerQuestionID)
+	}
+
+	// Append answer entry to thread.
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore answer: %w", err)
+	}
+	entry := &ticket.ThreadEntry{
+		ID:         entryID,
+		Kind:       ticket.EntryKindAnswer,
+		Author:     from,
+		Timestamp:  time.Now().UTC(),
+		Text:       answerText,
+		QuestionID: answerQuestionID,
+	}
+	t, err = appendThread(ctx, gitRoot, t, entry)
+	if err != nil {
+		return fmt.Errorf("lore answer: %w", err)
+	}
+
+	// Mark question as answered in the index.
+	qRecord.Answered = true
+	newQData, err := json.Marshal(qRecord)
+	if err != nil {
+		return fmt.Errorf("lore answer: marshal question record: %w", err)
+	}
+	newQSHA, err := gitcmd.WriteBlob(ctx, gitRoot, newQData)
+	if err != nil {
+		return fmt.Errorf("lore answer: write question blob: %w", err)
+	}
+	if err := gitcmd.WriteRef(ctx, gitRoot, qRef, newQSHA); err != nil {
+		return fmt.Errorf("lore answer: update question ref: %w", err)
+	}
+
+	// If ticket is blocked, unblock it now that the question is answered.
+	if t.Status == ticket.StatusBlocked {
+		_, _ = casUpdate(ctx, gitRoot, t.ID, func(t *ticket.Ticket) error {
+			t.Status = ticket.StatusWorking
+			t.BlockReason = ""
+			return nil
+		})
 	}
 
 	fmt.Printf("answered question %s on ticket %s\n", answerQuestionID, t.ID)
@@ -76,18 +120,4 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 		"from":        from,
 	}))
 	return nil
-}
-
-// hasUnansweredBlockingQuestions reports whether t has any blocking questions
-// that are still unanswered, excluding the question with skipID.
-func hasUnansweredBlockingQuestions(t *ticket.Ticket, skipID string) bool {
-	for _, q := range t.Questions {
-		if q.ID == skipID {
-			continue
-		}
-		if q.Blocking && q.AnsweredAt == nil {
-			return true
-		}
-	}
-	return false
 }

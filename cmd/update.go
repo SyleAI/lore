@@ -2,37 +2,31 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
+	"mime"
+	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
 
 var (
-	updateTitle       string
-	updateDescription string
-	updateStatus      string
-	updatePriority    int
-	updateFiles       []string
-	updateAddFiles    []string
-	updateAgent       string
+	updateImagePath string
+	updateFrom      string
 )
 
 var updateCmd = &cobra.Command{
-	Use:   "update <id>",
-	Short: "Update ticket fields non-interactively",
-	Args:  cobra.ExactArgs(1),
+	Use:   "update <ticket-id> <message>",
+	Short: "Append a progress update to a ticket thread",
+	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runUpdate,
 }
 
 func init() {
-	updateCmd.Flags().StringVar(&updateTitle, "title", "", "new title")
-	updateCmd.Flags().StringVar(&updateDescription, "description", "", "new description")
-	updateCmd.Flags().StringVar(&updateStatus, "status", "", "new status")
-	updateCmd.Flags().IntVar(&updatePriority, "priority", 0, "new priority (1–5)")
-	updateCmd.Flags().StringSliceVar(&updateFiles, "files", nil, "replace file list (comma-separated)")
-	updateCmd.Flags().StringSliceVar(&updateAddFiles, "add-files", nil, "append to file list (comma-separated)")
-	updateCmd.Flags().StringVar(&updateAgent, "agent", "", "new agent assignment")
+	updateCmd.Flags().StringVar(&updateImagePath, "image", "", "attach an image file to the update")
+	updateCmd.Flags().StringVar(&updateFrom, "from", "", "agent identity (defaults to config agent_id or hostname)")
 	rootCmd.AddCommand(updateCmd)
 }
 
@@ -44,54 +38,72 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	id := args[0]
+	from := agentID(ctx, updateFrom)
 
-	// Validate status flag before the CAS loop.
-	if updateStatus != "" && !ticket.ValidStatus(ticket.Status(updateStatus)) {
-		return fmt.Errorf("lore update: invalid status %q", updateStatus)
-	}
-
-	t, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
-		if updateTitle != "" {
-			t.Title = updateTitle
-		}
-		if updateDescription != "" {
-			t.Description = updateDescription
-		}
-		if updateStatus != "" {
-			t.Status = ticket.Status(updateStatus)
-		}
-		if updatePriority != 0 {
-			t.Priority = updatePriority
-		}
-		if updateFiles != nil {
-			t.Files = flattenCSV(updateFiles)
-		}
-		if updateAddFiles != nil {
-			t.Files = append(t.Files, flattenCSV(updateAddFiles)...)
-		}
-		if updateAgent != "" {
-			t.Agent = updateAgent
-		}
-		return nil
-	})
+	t, err := loadTicket(ctx, gitRoot, id)
 	if err != nil {
 		return fmt.Errorf("lore update: %w", err)
 	}
 
-	printTicket(t)
-	return nil
-}
-
-// flattenCSV expands a []string that may contain comma-separated values into a flat slice.
-func flattenCSV(in []string) []string {
-	var out []string
-	for _, s := range in {
-		for _, part := range strings.Split(s, ",") {
-			part = strings.TrimSpace(part)
-			if part != "" {
-				out = append(out, part)
-			}
-		}
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore update: %w", err)
 	}
-	return out
+
+	if updateImagePath != "" {
+		// Image attachment.
+		imgData, err := os.ReadFile(updateImagePath)
+		if err != nil {
+			return fmt.Errorf("lore update: read image: %w", err)
+		}
+		imgSHA, err := gitcmd.WriteBlob(ctx, gitRoot, imgData)
+		if err != nil {
+			return fmt.Errorf("lore update: store image: %w", err)
+		}
+
+		mimeType := mime.TypeByExtension(filepath.Ext(updateImagePath))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+
+		caption := ""
+		if len(args) == 2 {
+			caption = args[1]
+		}
+
+		entry := &ticket.ThreadEntry{
+			ID:        entryID,
+			Kind:      ticket.EntryKindImage,
+			Author:    from,
+			Timestamp: time.Now().UTC(),
+			ImageSHA:  imgSHA,
+			ImageMIME: mimeType,
+			Caption:   caption,
+		}
+		if _, err := appendThread(ctx, gitRoot, t, entry); err != nil {
+			return fmt.Errorf("lore update: %w", err)
+		}
+		fmt.Printf("image attached to ticket %s (%s)\n", id, imgSHA[:8])
+		return nil
+	}
+
+	// Text update.
+	if len(args) < 2 {
+		return fmt.Errorf("lore update: message required (or use --image for image attachments)")
+	}
+	message := args[1]
+
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindUpdate,
+		Author:    from,
+		Timestamp: time.Now().UTC(),
+		Text:      message,
+	}
+	if _, err := appendThread(ctx, gitRoot, t, entry); err != nil {
+		return fmt.Errorf("lore update: %w", err)
+	}
+
+	fmt.Printf("update added to ticket %s\n", id)
+	return nil
 }

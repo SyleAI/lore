@@ -29,11 +29,6 @@ var DefaultConfig []byte
 //go:embed defaults/policy.yaml
 var DefaultPolicy []byte
 
-// DefaultGraph is the default refs/tickets/graph YAML blob.
-//
-//go:embed defaults/graph.yaml
-var DefaultGraph []byte
-
 // DefaultImprovement is the default improvement.yaml template.
 //
 //go:embed defaults/improvement.yaml

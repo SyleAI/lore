@@ -2,13 +2,17 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/loreteam/lore/internal/event"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
 
-var assignAgent string
+var (
+	assignAgent  string
+	assignReason string
+)
 
 var assignCmd = &cobra.Command{
 	Use:   "assign <ticket-id>",
@@ -19,6 +23,7 @@ var assignCmd = &cobra.Command{
 
 func init() {
 	assignCmd.Flags().StringVar(&assignAgent, "agent", "", "agent ID to assign (required)")
+	assignCmd.Flags().StringVar(&assignReason, "reason", "", "reason for this assignment")
 	_ = assignCmd.MarkFlagRequired("agent")
 	rootCmd.AddCommand(assignCmd)
 }
@@ -31,17 +36,32 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	}
 
 	id := args[0]
+	from := agentID(ctx, "")
+
 	t, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
-		if t.Status == ticket.StatusClosed {
-			return fmt.Errorf("ticket %s is closed", t.ID)
+		if t.Status == ticket.StatusDone {
+			return fmt.Errorf("ticket %s is done", t.ID)
 		}
 		t.Agent = assignAgent
-		t.Checkpoints = append(t.Checkpoints, newCheckpoint(fmt.Sprintf("assigned to %s", assignAgent)))
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("lore assign: %w", err)
 	}
+
+	text := fmt.Sprintf("assigned to %s", assignAgent)
+	if assignReason != "" {
+		text += ": " + assignReason
+	}
+	entryID, _ := ticket.NewEntryID()
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindComment,
+		Author:    from,
+		Timestamp: time.Now().UTC(),
+		Text:      text,
+	}
+	_, _ = appendThread(ctx, gitRoot, t, entry)
 
 	fmt.Printf("ticket %s assigned to %s\n", t.ID, assignAgent)
 	em := event.EmitterFromContext(ctx)

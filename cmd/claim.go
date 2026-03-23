@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/loreteam/lore/internal/event"
 	"github.com/loreteam/lore/internal/ticket"
@@ -12,7 +13,7 @@ var claimAgent string
 
 var claimCmd = &cobra.Command{
 	Use:   "claim <id>",
-	Short: "Atomically claim a specific ticket",
+	Short: "Atomically claim a ticket for execution",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runClaim,
 }
@@ -36,16 +37,26 @@ func runClaim(cmd *cobra.Command, args []string) error {
 		if t.Status != ticket.StatusOpen {
 			return fmt.Errorf("ticket %s is %s, not open", t.ID, t.Status)
 		}
-		t.Status = ticket.StatusInProgress
+		t.Status = ticket.StatusWorking
 		t.Agent = agent
-		t.Attempts++
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("lore claim: %w", err)
 	}
 
-	printTicket(t)
+	// Append claim entry to thread.
+	entryID, _ := ticket.NewEntryID()
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindUpdate,
+		Author:    agent,
+		Timestamp: time.Now().UTC(),
+		Text:      fmt.Sprintf("claimed by %s", agent),
+	}
+	_, _ = appendThread(ctx, gitRoot, t, entry)
+
+	fmt.Printf("ticket %s claimed by %s\n", t.ID, agent)
 	em := event.EmitterFromContext(ctx)
 	em.Emit(ctx, event.New(event.EventTicketClaimed, map[string]any{
 		"id":    t.ID,

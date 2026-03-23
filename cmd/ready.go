@@ -10,7 +10,7 @@ import (
 
 var readyCmd = &cobra.Command{
 	Use:   "ready <id>",
-	Short: "Mark a ticket as ready for review",
+	Short: "Signal that work is done and the ticket is ready for review",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runReady,
 }
@@ -27,12 +27,11 @@ func runReady(cmd *cobra.Command, args []string) error {
 	}
 
 	id := args[0]
-
 	t, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
-		if t.Status != ticket.StatusInProgress {
-			return fmt.Errorf("ticket %s is %s, not in-progress", t.ID, t.Status)
+		if t.Status != ticket.StatusWorking {
+			return fmt.Errorf("ticket %s is %s, not working", t.ID, t.Status)
 		}
-		t.Status = ticket.StatusReady
+		t.Status = ticket.StatusReadyForReview
 		t.BlockReason = ""
 		return nil
 	})
@@ -40,7 +39,7 @@ func runReady(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore ready: %w", err)
 	}
 
-	fmt.Printf("ticket %s marked as ready\n", t.ID)
+	fmt.Printf("ticket %s marked as ready for review\n", t.ID)
 	em := event.EmitterFromContext(ctx)
 	em.Emit(ctx, event.New(event.EventTicketReady, map[string]any{"id": t.ID}))
 	return nil

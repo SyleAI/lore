@@ -1,40 +1,27 @@
 package cmd
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/loreteam/lore/internal/ai"
 	"github.com/loreteam/lore/internal/event"
-	"github.com/loreteam/lore/internal/store"
+	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
 
-var (
-	askType       string
-	askText       string
-	askAssumption string
-	askDirectedTo string
-	askBlocking   bool
-)
+var askFrom string
 
 var askCmd = &cobra.Command{
-	Use:   "ask <ticket-id>",
-	Short: "Record a question on a ticket",
-	Args:  cobra.ExactArgs(1),
+	Use:   "ask <ticket-id> <question>",
+	Short: "Post a question on a ticket",
+	Args:  cobra.ExactArgs(2),
 	RunE:  runAsk,
 }
 
 func init() {
-	askCmd.Flags().StringVar(&askType, "type", "", "question type: clarification, constraint_check, knowledge_gap, validation")
-	askCmd.Flags().StringVar(&askText, "text", "", "question text")
-	askCmd.Flags().StringVar(&askAssumption, "assumption", "", "assumption the agent is proceeding under (for non-blocking questions)")
-	askCmd.Flags().StringVar(&askDirectedTo, "directed-to", "", "agent or role to direct the question to")
-	askCmd.Flags().BoolVar(&askBlocking, "blocking", false, "block ticket progress until answered")
-	_ = askCmd.MarkFlagRequired("type")
-	_ = askCmd.MarkFlagRequired("text")
+	askCmd.Flags().StringVar(&askFrom, "from", "", "agent asking (defaults to config agent_id or hostname)")
 	rootCmd.AddCommand(askCmd)
 }
 
@@ -45,101 +32,76 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !ticket.ValidQuestionType(ticket.QuestionType(askType)) {
-		return fmt.Errorf("lore ask: invalid type %q (valid: clarification, constraint_check, knowledge_gap, validation)", askType)
-	}
-
 	id := args[0]
+	questionText := args[1]
+	from := agentID(ctx, askFrom)
+
+	t, err := loadTicket(ctx, gitRoot, id)
+	if err != nil {
+		return fmt.Errorf("lore ask: %w", err)
+	}
+	if t.Status == ticket.StatusDone {
+		return fmt.Errorf("lore ask: ticket %s is done", id)
+	}
 
 	qid, err := ticket.NewQuestionID()
 	if err != nil {
 		return fmt.Errorf("lore ask: %w", err)
 	}
-
-	t, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
-		if t.Status == ticket.StatusClosed {
-			return fmt.Errorf("ticket %s is closed", t.ID)
-		}
-		t.Questions = append(t.Questions, ticket.Question{
-			ID:         qid,
-			Type:       ticket.QuestionType(askType),
-			Text:       askText,
-			Blocking:   askBlocking,
-			Assumption: askAssumption,
-			DirectedTo: askDirectedTo,
-			AskedAt:    time.Now().UTC(),
-		})
-		if askBlocking {
-			t.Status = ticket.StatusBlocked
-			t.BlockReason = fmt.Sprintf("blocking question %s: %s", qid, askText)
-		}
-		return nil
-	})
+	entryID, err := ticket.NewEntryID()
 	if err != nil {
 		return fmt.Errorf("lore ask: %w", err)
 	}
 
-	fmt.Printf("question %s recorded on ticket %s\n", qid, t.ID)
-
-	if askType == string(ticket.QuestionTypeKnowledgeGap) {
-		if suggestion := findAnsweredSimilar(ctx, gitRoot, askText); suggestion != "" {
-			fmt.Printf("hint: similar answered question found — %s\n", suggestion)
-		}
+	// Append question entry to thread.
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindQuestion,
+		Author:    from,
+		Timestamp: time.Now().UTC(),
+		Text:      questionText,
+		// Store the qid in QuestionID so it can be matched when answering.
+		QuestionID: qid,
+	}
+	t, err = appendThread(ctx, gitRoot, t, entry)
+	if err != nil {
+		return fmt.Errorf("lore ask: %w", err)
 	}
 
+	// Set ticket to blocked.
+	t, err = casUpdate(ctx, gitRoot, t.ID, func(t *ticket.Ticket) error {
+		t.Status = ticket.StatusBlocked
+		t.BlockReason = fmt.Sprintf("question %s: %s", qid, questionText)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("lore ask: update status: %w", err)
+	}
+
+	// Write question index entry.
+	qRecord, err := json.Marshal(map[string]any{
+		"qid":       qid,
+		"ticket_id": id,
+		"text":      questionText,
+		"asked_at":  time.Now().UTC(),
+		"answered":  false,
+	})
+	if err != nil {
+		return fmt.Errorf("lore ask: marshal question record: %w", err)
+	}
+	qSHA, err := gitcmd.WriteBlob(ctx, gitRoot, qRecord)
+	if err != nil {
+		return fmt.Errorf("lore ask: write question blob: %w", err)
+	}
+	if err := gitcmd.WriteRef(ctx, gitRoot, ticket.QuestionRef(qid), qSHA); err != nil {
+		return fmt.Errorf("lore ask: write question ref: %w", err)
+	}
+
+	fmt.Printf("question %s posted on ticket %s\n", qid, t.ID)
 	em := event.EmitterFromContext(ctx)
 	em.Emit(ctx, event.New(event.EventQuestionAsked, map[string]any{
 		"ticket_id":   t.ID,
 		"question_id": qid,
-		"type":        askType,
-		"blocking":    askBlocking,
 	}))
 	return nil
-}
-
-const knowledgeGapSimilarityThreshold = 0.82
-
-// findAnsweredSimilar embeds the question text and compares it against all
-// answered questions in the store. Returns a hint string if a match is found,
-// or an empty string if AI is unavailable or no match exceeds the threshold.
-func findAnsweredSimilar(ctx context.Context, gitRoot, questionText string) string {
-	s, err := openStore(gitRoot)
-	if err != nil {
-		return ""
-	}
-	defer s.Close()
-
-	candidates, err := s.ListQuestions(store.QuestionFilter{Answered: true})
-	if err != nil || len(candidates) == 0 {
-		return ""
-	}
-
-	embedder := newEmbedder(ctx)
-
-	texts := make([]string, len(candidates)+1)
-	texts[0] = questionText
-	for i, c := range candidates {
-		texts[i+1] = c.Text
-	}
-
-	vecs, err := embedder.Embed(texts)
-	if err != nil {
-		return "" // AI unavailable — skip silently
-	}
-
-	queryVec := vecs[0]
-	var bestSim float64
-	var best *store.QuestionRow
-	for i, c := range candidates {
-		sim := ai.CosineSimilarity(queryVec, vecs[i+1])
-		if sim > bestSim {
-			bestSim = sim
-			best = c
-		}
-	}
-
-	if best == nil || bestSim < knowledgeGapSimilarityThreshold {
-		return ""
-	}
-	return fmt.Sprintf("%q (answered: %q)", best.Text, best.Answer)
 }

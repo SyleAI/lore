@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/loreteam/lore/internal/event"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
@@ -11,7 +13,7 @@ var approveFrom string
 
 var approveCmd = &cobra.Command{
 	Use:   "approve <ticket-id>",
-	Short: "Approve a ready ticket for merge",
+	Short: "Approve a ready-for-review ticket",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runApprove,
 }
@@ -31,17 +33,31 @@ func runApprove(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	from := agentID(ctx, approveFrom)
 
-	t, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
-		if t.Status != ticket.StatusReady {
-			return fmt.Errorf("ticket %s is not ready (status: %s)", t.ID, t.Status)
-		}
-		t.Checkpoints = append(t.Checkpoints, newCheckpoint(fmt.Sprintf("approved by %s", from)))
-		return nil
-	})
+	t, err := loadTicket(ctx, gitRoot, id)
 	if err != nil {
 		return fmt.Errorf("lore approve: %w", err)
 	}
+	if t.Status != ticket.StatusReadyForReview {
+		return fmt.Errorf("lore approve: ticket %s is %s, not ready-for-review", id, t.Status)
+	}
 
-	fmt.Printf("ticket %s approved by %s\n", t.ID, from)
+	entryID, _ := ticket.NewEntryID()
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindComment,
+		Author:    from,
+		Timestamp: time.Now().UTC(),
+		Text:      "approved",
+	}
+	if _, err := appendThread(ctx, gitRoot, t, entry); err != nil {
+		return fmt.Errorf("lore approve: %w", err)
+	}
+
+	fmt.Printf("ticket %s approved by %s\n", id, from)
+	em := event.EmitterFromContext(ctx)
+	em.Emit(ctx, event.New(event.EventTicketApproved, map[string]any{
+		"ticket_id": id,
+		"from":      from,
+	}))
 	return nil
 }

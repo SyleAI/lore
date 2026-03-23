@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/loreteam/lore/internal/store"
+	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
@@ -32,66 +32,79 @@ func runReview(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("lore review: %w", err)
 		}
-		printTicket(t)
+		entries, _ := loadThread(ctx, gitRoot, t)
+		printTicket(t, entries)
 		return nil
 	}
 
-	s, err := openStore(gitRoot)
-	if err != nil {
-		return fmt.Errorf("lore review: %w", err)
-	}
-	defer s.Close()
-
-	// Escalated tickets (blocked).
-	blocked, err := s.ListTickets(store.ListFilter{Status: string(ticket.StatusBlocked)})
+	tickets, err := listTickets(ctx, gitRoot, false)
 	if err != nil {
 		return fmt.Errorf("lore review: %w", err)
 	}
 
-	// Ready tickets awaiting approval.
-	ready, err := s.ListTickets(store.ListFilter{Status: string(ticket.StatusReady)})
-	if err != nil {
-		return fmt.Errorf("lore review: %w", err)
+	var readyForReview, blocked []*ticket.Ticket
+	for _, t := range tickets {
+		switch t.Status {
+		case ticket.StatusReadyForReview:
+			readyForReview = append(readyForReview, t)
+		case ticket.StatusBlocked:
+			blocked = append(blocked, t)
+		}
 	}
 
-	// Blocking unanswered questions.
-	blockingQ, err := s.ListQuestions(store.QuestionFilter{Unanswered: true, BlockingOnly: true})
-	if err != nil {
-		return fmt.Errorf("lore review: %w", err)
+	// Scan questions index for unanswered questions.
+	questionRefs, _ := gitcmd.ListRefs(ctx, gitRoot, "refs/tickets/questions/")
+	type questionEntry struct {
+		qid      string
+		ticketID string
+		text     string
+	}
+	var openQuestions []questionEntry
+	for _, sha := range questionRefs {
+		data, err := gitcmd.ReadBlob(ctx, gitRoot, sha)
+		if err != nil {
+			continue
+		}
+		var q struct {
+			QID      string `json:"qid"`
+			TicketID string `json:"ticket_id"`
+			Text     string `json:"text"`
+			Answered bool   `json:"answered"`
+		}
+		if err := parseJSON(data, &q); err != nil || q.Answered {
+			continue
+		}
+		openQuestions = append(openQuestions, questionEntry{q.QID, q.TicketID, q.Text})
 	}
 
-	if len(blocked)+len(ready)+len(blockingQ) == 0 {
+	if len(readyForReview)+len(blocked)+len(openQuestions) == 0 {
 		fmt.Println("nothing requires human attention")
 		return nil
 	}
 
-	printTicketSection("Ready for approval", ready)
-	printTicketSection("Escalated / blocked", blocked)
+	printTicketGroup("Ready for review", readyForReview)
+	printTicketGroup("Blocked / escalated", blocked)
 
-	if len(blockingQ) > 0 {
-		fmt.Printf("Blocking unanswered questions (%d):\n", len(blockingQ))
+	if len(openQuestions) > 0 {
+		fmt.Printf("Open questions (%d):\n", len(openQuestions))
 		fmt.Printf("  %-14s  %-8s  %s\n", "TICKET", "Q-ID", "QUESTION")
-		for _, q := range blockingQ {
-			text := q.Text
-			if len(text) > 60 {
-				text = text[:57] + "..."
-			}
-			fmt.Printf("  %-14s  %-8s  %s\n", q.TicketID, q.ID, text)
+		for _, q := range openQuestions {
+			fmt.Printf("  %-14s  %-8s  %s\n", q.ticketID, q.qid, truncate(q.text, 60))
 		}
+		fmt.Println()
 	}
 
 	return nil
 }
 
-func printTicketSection(label string, rows []*store.Row) {
-	if len(rows) == 0 {
+func printTicketGroup(label string, tickets []*ticket.Ticket) {
+	if len(tickets) == 0 {
 		return
 	}
-	fmt.Printf("%s (%d):\n", label, len(rows))
-	fmt.Printf("  %-14s  %s\n", "TICKET", "TITLE")
-	for _, r := range rows {
-		fmt.Printf("  %-14s  %s\n", r.ID, r.Title)
+	fmt.Printf("%s (%d):\n", label, len(tickets))
+	fmt.Printf("  %-14s  %s\n", "TICKET", "DESCRIPTION")
+	for _, t := range tickets {
+		fmt.Printf("  %-14s  %s\n", t.ID, truncate(t.Desc, 60))
 	}
 	fmt.Println()
 }
-

@@ -9,21 +9,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	spawnDescription string
-	spawnPriority    int
-)
-
 var spawnCmd = &cobra.Command{
-	Use:   "spawn <parent-id> <title>",
+	Use:   "spawn <parent-id> <description>",
 	Short: "Create a child ticket under a parent",
 	Args:  cobra.ExactArgs(2),
 	RunE:  runSpawn,
 }
 
 func init() {
-	spawnCmd.Flags().StringVar(&spawnDescription, "description", "", "child ticket description")
-	spawnCmd.Flags().IntVar(&spawnPriority, "priority", 3, "child ticket priority (1–5)")
 	rootCmd.AddCommand(spawnCmd)
 }
 
@@ -34,7 +27,7 @@ func runSpawn(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	parentID, title := args[0], args[1]
+	parentID, desc := args[0], args[1]
 
 	if _, err := loadTicket(ctx, gitRoot, parentID); err != nil {
 		return fmt.Errorf("lore spawn: parent %w", err)
@@ -47,14 +40,12 @@ func runSpawn(cmd *cobra.Command, args []string) error {
 
 	now := time.Now().UTC()
 	child := &ticket.Ticket{
-		ID:          id,
-		Title:       title,
-		Description: spawnDescription,
-		Status:      ticket.StatusOpen,
-		Priority:    spawnPriority,
-		Parent:      parentID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        id,
+		Desc:      desc,
+		Status:    ticket.StatusOpen,
+		Parent:    parentID,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := saveTicket(ctx, gitRoot, child); err != nil {
@@ -66,7 +57,6 @@ func runSpawn(cmd *cobra.Command, args []string) error {
 	em.Emit(ctx, event.New(event.EventTicketCreated, map[string]any{
 		"id":     child.ID,
 		"parent": parentID,
-		"title":  title,
 	}))
 	return nil
 }

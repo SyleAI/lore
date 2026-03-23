@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/loreteam/lore/internal/event"
 	"github.com/loreteam/lore/internal/ticket"
@@ -36,14 +37,23 @@ func runUnblock(cmd *cobra.Command, args []string) error {
 		if t.Status != ticket.StatusBlocked {
 			return fmt.Errorf("ticket %s is not blocked (status: %s)", t.ID, t.Status)
 		}
-		t.Status = ticket.StatusInProgress
+		t.Status = ticket.StatusWorking
 		t.BlockReason = ""
-		t.Checkpoints = append(t.Checkpoints, newCheckpoint(fmt.Sprintf("unblocked by %s", from)))
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("lore unblock: %w", err)
 	}
+
+	entryID, _ := ticket.NewEntryID()
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindComment,
+		Author:    from,
+		Timestamp: time.Now().UTC(),
+		Text:      "unblocked",
+	}
+	_, _ = appendThread(ctx, gitRoot, t, entry)
 
 	fmt.Printf("ticket %s unblocked\n", t.ID)
 	em := event.EmitterFromContext(ctx)

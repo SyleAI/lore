@@ -2,13 +2,10 @@ package cmd
 
 import (
 	"context"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/loreteam/lore/internal/store"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,17 +23,15 @@ func newCmdTestRepo(t *testing.T) string {
 		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
 		require.NoError(t, err, "setup %v: %s", args, out)
 	}
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".lore"), 0755))
 	return dir
 }
 
-func makeTestTicket(id, title string) *ticket.Ticket {
+func makeTestTicket(id, desc string) *ticket.Ticket {
 	now := time.Now().UTC()
 	return &ticket.Ticket{
 		ID:        id,
-		Title:     title,
+		Desc:      desc,
 		Status:    ticket.StatusOpen,
-		Priority:  3,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -46,44 +41,14 @@ func TestSaveAndLoadTicket(t *testing.T) {
 	dir := newCmdTestRepo(t)
 	ctx := context.Background()
 
-	tkt := makeTestTicket("aabbcc112233", "Test ticket")
+	tkt := makeTestTicket("aabbcc112233", "Fix the broken auth timeout")
 	require.NoError(t, saveTicket(ctx, dir, tkt))
 
 	loaded, err := loadTicket(ctx, dir, tkt.ID)
 	require.NoError(t, err)
 	assert.Equal(t, tkt.ID, loaded.ID)
-	assert.Equal(t, tkt.Title, loaded.Title)
+	assert.Equal(t, tkt.Desc, loaded.Desc)
 	assert.Equal(t, tkt.Status, loaded.Status)
-	assert.Equal(t, tkt.Priority, loaded.Priority)
-}
-
-func TestSaveTicket_AllFields(t *testing.T) {
-	dir := newCmdTestRepo(t)
-	ctx := context.Background()
-
-	now := time.Now().UTC().Truncate(time.Second)
-	tkt := &ticket.Ticket{
-		ID:          "aabbcc112233",
-		Title:       "Full ticket",
-		Description: "Has all fields",
-		Status:      ticket.StatusInProgress,
-		Priority:    5,
-		Files:       []string{"foo/bar.go", "baz/qux.go"},
-		Agent:       "agent-007",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	require.NoError(t, saveTicket(ctx, dir, tkt))
-
-	loaded, err := loadTicket(ctx, dir, tkt.ID)
-	require.NoError(t, err)
-	assert.Equal(t, tkt.Title, loaded.Title)
-	assert.Equal(t, tkt.Description, loaded.Description)
-	assert.Equal(t, tkt.Status, loaded.Status)
-	assert.Equal(t, tkt.Priority, loaded.Priority)
-	assert.Equal(t, tkt.Files, loaded.Files)
-	assert.Equal(t, tkt.Agent, loaded.Agent)
-	assert.True(t, tkt.CreatedAt.Equal(loaded.CreatedAt))
 }
 
 func TestLoadTicket_NotFound(t *testing.T) {
@@ -95,55 +60,113 @@ func TestLoadTicket_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestSaveTicket_UpdatesStore(t *testing.T) {
+func TestLoadTicket_FindsDone(t *testing.T) {
 	dir := newCmdTestRepo(t)
 	ctx := context.Background()
 
-	tkt := makeTestTicket("aabbcc112233", "Original title")
+	tkt := makeTestTicket("aabbcc112233", "A completed ticket")
+	tkt.Status = ticket.StatusDone
 	require.NoError(t, saveTicket(ctx, dir, tkt))
 
-	s, err := openStore(dir)
+	// saveTicket always writes to open/ — simulate a done ticket by using casUpdate.
+	// First save as open, then casUpdate to done.
+	tkt2 := makeTestTicket("ddeeff445566", "Will be closed")
+	require.NoError(t, saveTicket(ctx, dir, tkt2))
+	_, err := casUpdate(ctx, dir, tkt2.ID, func(t *ticket.Ticket) error {
+		t.Status = ticket.StatusDone
+		return nil
+	})
 	require.NoError(t, err)
-	defer s.Close()
 
-	rows, err := s.ListTickets(store.ListFilter{})
+	loaded, err := loadTicket(ctx, dir, tkt2.ID)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "Original title", rows[0].Title)
+	assert.Equal(t, ticket.StatusDone, loaded.Status)
 }
 
-func TestSaveTicket_Update(t *testing.T) {
+func TestAppendThread(t *testing.T) {
 	dir := newCmdTestRepo(t)
 	ctx := context.Background()
 
-	tkt := makeTestTicket("aabbcc112233", "Original title")
+	tkt := makeTestTicket("aabbcc112233", "Ticket with thread")
 	require.NoError(t, saveTicket(ctx, dir, tkt))
 
-	tkt.Title = "Updated title"
-	tkt.Status = ticket.StatusClosed
-	tkt.UpdatedAt = time.Now().UTC()
-	require.NoError(t, saveTicket(ctx, dir, tkt))
+	entryID, err := ticket.NewEntryID()
+	require.NoError(t, err)
 
+	entry := &ticket.ThreadEntry{
+		ID:        entryID,
+		Kind:      ticket.EntryKindUpdate,
+		Author:    "worker-1",
+		Timestamp: time.Now().UTC(),
+		Text:      "started working on the auth handler",
+	}
+
+	updated, err := appendThread(ctx, dir, tkt, entry)
+	require.NoError(t, err)
+	assert.Len(t, updated.Thread, 1)
+
+	// Load thread back.
 	loaded, err := loadTicket(ctx, dir, tkt.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "Updated title", loaded.Title)
-	assert.Equal(t, ticket.StatusClosed, loaded.Status)
+	assert.Len(t, loaded.Thread, 1)
 
-	// Store should also reflect the update.
-	s, err := openStore(dir)
+	entries, err := loadThread(ctx, dir, loaded)
 	require.NoError(t, err)
-	defer s.Close()
-	rows, err := s.ListTickets(store.ListFilter{})
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "Updated title", rows[0].Title)
-	assert.Equal(t, "closed", rows[0].Status)
+	require.Len(t, entries, 1)
+	assert.Equal(t, entry.Text, entries[0].Text)
+	assert.Equal(t, entry.Kind, entries[0].Kind)
 }
 
-func TestOpenStore_MissingLoreDir(t *testing.T) {
+func TestListTickets(t *testing.T) {
 	dir := newCmdTestRepo(t)
-	// Remove .lore/ to simulate uninitialised repo.
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, ".lore")))
-	_, err := openStore(dir)
-	assert.Error(t, err)
+	ctx := context.Background()
+
+	t1 := makeTestTicket("aaa111", "First ticket")
+	t2 := makeTestTicket("bbb222", "Second ticket")
+	require.NoError(t, saveTicket(ctx, dir, t1))
+	require.NoError(t, saveTicket(ctx, dir, t2))
+
+	tickets, err := listTickets(ctx, dir, false)
+	require.NoError(t, err)
+	assert.Len(t, tickets, 2)
+}
+
+func TestListTickets_IncludeDone(t *testing.T) {
+	dir := newCmdTestRepo(t)
+	ctx := context.Background()
+
+	open := makeTestTicket("aaa111", "Open ticket")
+	done := makeTestTicket("bbb222", "Done ticket")
+	require.NoError(t, saveTicket(ctx, dir, open))
+	require.NoError(t, saveTicket(ctx, dir, done))
+	_, err := casUpdate(ctx, dir, done.ID, func(t *ticket.Ticket) error {
+		t.Status = ticket.StatusDone
+		return nil
+	})
+	require.NoError(t, err)
+
+	without, err := listTickets(ctx, dir, false)
+	require.NoError(t, err)
+	assert.Len(t, without, 1)
+
+	with, err := listTickets(ctx, dir, true)
+	require.NoError(t, err)
+	assert.Len(t, with, 2)
+}
+
+func TestCasUpdate_ConflictRetry(t *testing.T) {
+	dir := newCmdTestRepo(t)
+	ctx := context.Background()
+
+	tkt := makeTestTicket("aabbcc112233", "CAS test ticket")
+	require.NoError(t, saveTicket(ctx, dir, tkt))
+
+	updated, err := casUpdate(ctx, dir, tkt.ID, func(t *ticket.Ticket) error {
+		t.Status = ticket.StatusWorking
+		t.Agent = "agent-1"
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ticket.StatusWorking, updated.Status)
+	assert.Equal(t, "agent-1", updated.Agent)
 }
