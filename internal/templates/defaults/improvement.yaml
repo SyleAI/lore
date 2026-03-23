@@ -1,0 +1,38 @@
+dimensions:
+  code_quality:
+    weight: 0.30
+    metrics:
+      - cyclomatic_complexity
+      - test_coverage
+      - duplication_ratio
+    targets:
+      cyclomatic_complexity: "< 10 per function"
+      test_coverage: "> 0.85"
+      duplication_ratio: "< 0.05"
+  performance:
+    weight: 0.25
+    metrics:
+      - p99_latency
+      - memory_footprint
+    targets:
+      p99_latency: "< 200ms on critical paths"
+    measurement: tests/benchmarks/
+  technical_debt:
+    weight: 0.25
+    metrics:
+      - coupling_score
+      - module_age
+      - churn_vs_stability
+  consistency:
+    weight: 0.20
+    metrics:
+      - pattern_adherence
+      - naming_convention_score
+
+constraints:
+  never_regress:
+    - test_coverage
+    - security_score
+  human_approval_required_for:
+    - architectural_changes
+    - dependency_additions

@@ -1,0 +1,43 @@
+merge:
+  automerge_risk_ceiling: 0.20
+  require_human_above: 0.60
+  validation_window_seconds: 600
+  protected_paths: []
+
+agents:
+  default_confidence_threshold: 0.80
+  max_concurrent: 5
+  max_attempts_per_ticket: 3
+  escalate_after_attempts: 2
+
+risk:
+  weights:
+    diff_size: 0.20
+    file_heat: 0.35
+    protected_path_touched: 0.30
+    prior_failures: 0.15
+
+consolidation:
+  spatial_threshold: 0.80
+  semantic_threshold: 0.75
+  run_every_seconds: 300
+
+escalation:
+  default_path: "@platform-team"
+  billing_path: "@billing-lead"
+  security_path: "@security"
+
+questions:
+  agent_answer_window_seconds: 30
+  ai_resolver_confidence_threshold: 0.80
+  human_notify_via:
+    - lore_review
+  blocking_question_urgency: high
+  nonblocking_question_urgency: low
+
+scoring:
+  file_heat_weight: 40
+  unblocks_weight: 15
+  age_day_weight: 0.2
+  attempts_penalty: 5
+  max_attempts_penalty: 20

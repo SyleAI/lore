@@ -1,0 +1,12 @@
+ai:
+  embeddings:
+    provider: anthropic
+    model: voyage-3
+    dimensions: 1024
+  reasoning:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    max_tokens: 1024
+events:
+  adapter: stdout
+agent_id: ""
