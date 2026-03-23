@@ -1,0 +1,139 @@
+{{define "title"}}Event Log — Lore{{end}}
+
+{{define "content"}}
+<div class="flex flex-col h-screen">
+  <!-- Header -->
+  <div class="flex-shrink-0 px-8 py-5 border-b border-zinc-200 dark:border-[#2a2a32] bg-white dark:bg-[#16161a]">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Event Log</h1>
+        <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Live stream of all system events.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-1.5">
+          <div id="status-dot" class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+          <span id="status-label" class="text-xs text-zinc-500 dark:text-zinc-400">Live</span>
+        </div>
+        <button id="pause-btn" onclick="togglePause()"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg transition-colors">
+          <svg id="pause-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span id="pause-label">Pause</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Event stream -->
+  <div id="event-container" class="flex-1 overflow-y-auto bg-[#0d0d10] p-6 font-mono text-xs">
+    <div id="event-log" class="space-y-1">
+      <div class="text-zinc-600 select-none">-- waiting for events --</div>
+    </div>
+    <div id="scroll-anchor"></div>
+  </div>
+</div>
+
+<script>
+  var paused = false;
+  var eventSource = null;
+  var eventCount = 0;
+
+  var colorMap = {
+    'ticket': 'text-indigo-400',
+    'question': 'text-amber-400',
+    'lore': 'text-zinc-400',
+  };
+
+  function getColor(type) {
+    var prefix = type ? type.split('.')[0] : '';
+    return colorMap[prefix] || 'text-zinc-400';
+  }
+
+  function formatEvent(raw) {
+    try {
+      var obj = JSON.parse(raw);
+      var ts = obj.ts ? new Date(obj.ts).toLocaleTimeString() : '';
+      var type = obj.type || '';
+      var data = obj.data ? JSON.stringify(obj.data) : '';
+      var color = getColor(type);
+      return '<span class="text-zinc-600">' + ts + '</span>  <span class="' + color + ' font-medium">' + escHtml(type) + '</span>  <span class="text-zinc-500">' + escHtml(data) + '</span>';
+    } catch(e) {
+      return '<span class="text-zinc-500">' + escHtml(raw) + '</span>';
+    }
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function appendEvent(raw) {
+    if (!raw.trim()) return;
+    var log = document.getElementById('event-log');
+    // Remove placeholder
+    var placeholder = log.querySelector('.select-none');
+    if (placeholder) placeholder.remove();
+
+    var line = document.createElement('div');
+    line.className = 'leading-relaxed';
+    line.innerHTML = formatEvent(raw);
+    log.appendChild(line);
+    eventCount++;
+
+    if (!paused) {
+      document.getElementById('scroll-anchor').scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  function togglePause() {
+    paused = !paused;
+    var label = document.getElementById('pause-label');
+    var icon = document.getElementById('pause-icon');
+    var dot = document.getElementById('status-dot');
+    var statusLabel = document.getElementById('status-label');
+
+    if (paused) {
+      label.textContent = 'Resume';
+      dot.classList.remove('bg-green-400', 'animate-pulse');
+      dot.classList.add('bg-amber-400');
+      statusLabel.textContent = 'Paused';
+      icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>';
+    } else {
+      label.textContent = 'Pause';
+      dot.classList.remove('bg-amber-400');
+      dot.classList.add('bg-green-400', 'animate-pulse');
+      statusLabel.textContent = 'Live';
+      icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>';
+      document.getElementById('scroll-anchor').scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  function connect() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/events/stream');
+    eventSource.onmessage = function(e) {
+      appendEvent(e.data);
+    };
+    eventSource.onerror = function() {
+      var dot = document.getElementById('status-dot');
+      var statusLabel = document.getElementById('status-label');
+      dot.classList.remove('bg-green-400', 'animate-pulse', 'bg-amber-400');
+      dot.classList.add('bg-red-400');
+      statusLabel.textContent = 'Disconnected';
+      // Reconnect after 3s
+      setTimeout(connect, 3000);
+    };
+    eventSource.onopen = function() {
+      var dot = document.getElementById('status-dot');
+      var statusLabel = document.getElementById('status-label');
+      if (!paused) {
+        dot.classList.remove('bg-red-400', 'bg-amber-400');
+        dot.classList.add('bg-green-400', 'animate-pulse');
+        statusLabel.textContent = 'Live';
+      }
+    };
+  }
+
+  connect();
+</script>
+{{end}}

@@ -16,10 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var (
-	initForce       bool
-	initImprovement bool
-)
+var initForce bool
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -40,7 +37,6 @@ var doctorCmd = &cobra.Command{
 
 func init() {
 	initCmd.Flags().BoolVar(&initForce, "force", false, "reinitialize even if lore is already set up")
-	initCmd.Flags().BoolVar(&initImprovement, "improvement", false, "also write improvement.yaml to the working tree root")
 
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(doctorCmd)
@@ -68,7 +64,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	loreDir := filepath.Join(gitRoot, ".lore")
-	claudeSkillsDir := filepath.Join(gitRoot, ".claude", "skills")
 
 	// Write default policy blob → ref.
 	policySHA, err := gitcmd.WriteBlob(ctx, gitRoot, templates.DefaultPolicy)
@@ -101,24 +96,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	logf("  created .lore/.gitignore\n")
 
-	// Create .claude/skills/ and write skill files.
-	if err := os.MkdirAll(claudeSkillsDir, 0755); err != nil {
-		return fmt.Errorf("lore init: create .claude/skills dir: %w", err)
-	}
-
-	skillFiles := []string{"lore-worker.md", "lore-lead.md"}
-	for _, name := range skillFiles {
-		content, readErr := templates.SkillFiles.ReadFile("skills/" + name)
-		if readErr != nil {
-			return fmt.Errorf("lore init: read embedded skill %s: %w", name, readErr)
-		}
-		dest := filepath.Join(claudeSkillsDir, name)
-		if err := os.WriteFile(dest, content, 0644); err != nil {
-			return fmt.Errorf("lore init: write skill %s: %w", name, err)
-		}
-		logf("  created .claude/skills/%s\n", name)
-	}
-
 	// Add fetch refspec to each remote.
 	remotes, remoteErr := listRemotes(ctx, gitRoot)
 	if remoteErr != nil {
@@ -131,14 +108,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 				logf("  updated remote %s with refs/tickets/* refspec\n", remote)
 			}
 		}
-	}
-
-	if initImprovement {
-		improvementPath := filepath.Join(gitRoot, "improvement.yaml")
-		if err := os.WriteFile(improvementPath, templates.DefaultImprovement, 0644); err != nil {
-			return fmt.Errorf("lore init: write improvement.yaml: %w", err)
-		}
-		logf("  created improvement.yaml\n")
 	}
 
 	em := event.EmitterFromContext(ctx)
@@ -189,7 +158,6 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	loreDir := filepath.Join(gitRoot, ".lore")
-	claudeSkillsDir := filepath.Join(gitRoot, ".claude", "skills")
 
 	allOK := true
 	check := func(label string, ok bool, reason string) {
@@ -232,13 +200,6 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		} else {
 			check(".lore/config.yaml", true, "")
 		}
-	}
-
-	workerPath := filepath.Join(claudeSkillsDir, "lore-worker.md")
-	if _, statErr := os.Stat(workerPath); statErr != nil {
-		check(".claude/skills/lore-worker.md", false, statErr.Error())
-	} else {
-		check(".claude/skills/lore-worker.md", true, "")
 	}
 
 	cfg, cfgErr := config.Load(loreDir)

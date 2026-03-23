@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var askFrom string
+var (
+	askFrom  string
+	askBlock bool
+)
 
 var askCmd = &cobra.Command{
 	Use:   "ask <ticket-id> <question>",
@@ -22,6 +25,7 @@ var askCmd = &cobra.Command{
 
 func init() {
 	askCmd.Flags().StringVar(&askFrom, "from", "", "agent asking (defaults to config agent_id or hostname)")
+	askCmd.Flags().BoolVar(&askBlock, "block", false, "block the ticket until this question is answered")
 	rootCmd.AddCommand(askCmd)
 }
 
@@ -55,12 +59,11 @@ func runAsk(cmd *cobra.Command, args []string) error {
 
 	// Append question entry to thread.
 	entry := &ticket.ThreadEntry{
-		ID:        entryID,
-		Kind:      ticket.EntryKindQuestion,
-		Author:    from,
-		Timestamp: time.Now().UTC(),
-		Text:      questionText,
-		// Store the qid in QuestionID so it can be matched when answering.
+		ID:         entryID,
+		Kind:       ticket.EntryKindQuestion,
+		Author:     from,
+		Timestamp:  time.Now().UTC(),
+		Text:       questionText,
 		QuestionID: qid,
 	}
 	t, err = appendThread(ctx, gitRoot, t, entry)
@@ -68,14 +71,16 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore ask: %w", err)
 	}
 
-	// Set ticket to blocked.
-	t, err = casUpdate(ctx, gitRoot, t.ID, func(t *ticket.Ticket) error {
-		t.Status = ticket.StatusBlocked
-		t.BlockReason = fmt.Sprintf("question %s: %s", qid, questionText)
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("lore ask: update status: %w", err)
+	// Optionally block the ticket.
+	if askBlock {
+		t, err = casUpdate(ctx, gitRoot, t.ID, func(t *ticket.Ticket) error {
+			t.Status = ticket.StatusBlocked
+			t.BlockReason = fmt.Sprintf("question %s: %s", qid, questionText)
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("lore ask: block ticket: %w", err)
+		}
 	}
 
 	// Write question index entry.
@@ -85,6 +90,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		"text":      questionText,
 		"asked_at":  time.Now().UTC(),
 		"answered":  false,
+		"blocking":  askBlock,
 	})
 	if err != nil {
 		return fmt.Errorf("lore ask: marshal question record: %w", err)
@@ -102,6 +108,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 	em.Emit(ctx, event.New(event.EventQuestionAsked, map[string]any{
 		"ticket_id":   t.ID,
 		"question_id": qid,
+		"blocking":    askBlock,
 	}))
 	return nil
 }

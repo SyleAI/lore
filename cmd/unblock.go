@@ -45,7 +45,10 @@ func runUnblock(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore unblock: %w", err)
 	}
 
-	entryID, _ := ticket.NewEntryID()
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore unblock: %w", err)
+	}
 	entry := &ticket.ThreadEntry{
 		ID:        entryID,
 		Kind:      ticket.EntryKindComment,
@@ -53,7 +56,9 @@ func runUnblock(cmd *cobra.Command, args []string) error {
 		Timestamp: time.Now().UTC(),
 		Text:      "unblocked",
 	}
-	_, _ = appendThread(ctx, gitRoot, t, entry)
+	if _, err := appendThread(ctx, gitRoot, t, entry); err != nil {
+		return fmt.Errorf("lore unblock: %w", err)
+	}
 
 	fmt.Printf("ticket %s unblocked\n", t.ID)
 	em := event.EmitterFromContext(ctx)

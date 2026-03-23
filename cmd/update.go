@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/loreteam/lore/internal/event"
 	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
@@ -84,6 +85,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("lore update: %w", err)
 		}
 		fmt.Printf("image attached to ticket %s (%s)\n", id, imgSHA[:8])
+		em := event.EmitterFromContext(ctx)
+		em.Emit(ctx, event.New(event.EventTicketUpdated, map[string]any{
+			"ticket_id": id,
+			"kind":      "image",
+			"from":      from,
+		}))
 		return nil
 	}
 
@@ -105,5 +112,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("update added to ticket %s\n", id)
+	em := event.EmitterFromContext(ctx)
+	em.Emit(ctx, event.New(event.EventTicketUpdated, map[string]any{
+		"ticket_id": id,
+		"kind":      "update",
+		"from":      from,
+	}))
 	return nil
 }

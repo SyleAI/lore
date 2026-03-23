@@ -46,7 +46,10 @@ func runClaim(cmd *cobra.Command, args []string) error {
 	}
 
 	// Append claim entry to thread.
-	entryID, _ := ticket.NewEntryID()
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore claim: %w", err)
+	}
 	entry := &ticket.ThreadEntry{
 		ID:        entryID,
 		Kind:      ticket.EntryKindUpdate,
@@ -54,13 +57,15 @@ func runClaim(cmd *cobra.Command, args []string) error {
 		Timestamp: time.Now().UTC(),
 		Text:      fmt.Sprintf("claimed by %s", agent),
 	}
-	_, _ = appendThread(ctx, gitRoot, t, entry)
+	if _, err := appendThread(ctx, gitRoot, t, entry); err != nil {
+		return fmt.Errorf("lore claim: %w", err)
+	}
 
 	fmt.Printf("ticket %s claimed by %s\n", t.ID, agent)
 	em := event.EmitterFromContext(ctx)
 	em.Emit(ctx, event.New(event.EventTicketClaimed, map[string]any{
-		"id":    t.ID,
-		"agent": agent,
+		"ticket_id": t.ID,
+		"agent":     agent,
 	}))
 	return nil
 }

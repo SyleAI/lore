@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/loreteam/lore/internal/event"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/spf13/cobra"
 )
@@ -46,7 +47,10 @@ func runReject(cmd *cobra.Command, args []string) error {
 	}
 
 	// Append rejection comment to thread.
-	entryID, _ := ticket.NewEntryID()
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore reject: %w", err)
+	}
 	entry := &ticket.ThreadEntry{
 		ID:        entryID,
 		Kind:      ticket.EntryKindComment,
@@ -61,12 +65,18 @@ func runReject(cmd *cobra.Command, args []string) error {
 	// Return ticket to working status.
 	if _, err := casUpdate(ctx, gitRoot, id, func(t *ticket.Ticket) error {
 		t.Status = ticket.StatusWorking
-		t.BlockReason = fmt.Sprintf("rejected by %s: %s", from, rejectReason)
+		t.BlockReason = ""
 		return nil
 	}); err != nil {
 		return fmt.Errorf("lore reject: %w", err)
 	}
 
 	fmt.Printf("ticket %s rejected: %s\n", id, rejectReason)
+	em := event.EmitterFromContext(ctx)
+	em.Emit(ctx, event.New(event.EventTicketRejected, map[string]any{
+		"ticket_id": id,
+		"from":      from,
+		"reason":    rejectReason,
+	}))
 	return nil
 }

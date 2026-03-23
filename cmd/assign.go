@@ -53,7 +53,10 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	if assignReason != "" {
 		text += ": " + assignReason
 	}
-	entryID, _ := ticket.NewEntryID()
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore assign: %w", err)
+	}
 	entry := &ticket.ThreadEntry{
 		ID:        entryID,
 		Kind:      ticket.EntryKindComment,
@@ -61,7 +64,9 @@ func runAssign(cmd *cobra.Command, args []string) error {
 		Timestamp: time.Now().UTC(),
 		Text:      text,
 	}
-	_, _ = appendThread(ctx, gitRoot, t, entry)
+	if _, err := appendThread(ctx, gitRoot, t, entry); err != nil {
+		return fmt.Errorf("lore assign: %w", err)
+	}
 
 	fmt.Printf("ticket %s assigned to %s\n", t.ID, assignAgent)
 	em := event.EmitterFromContext(ctx)

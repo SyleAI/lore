@@ -41,7 +41,10 @@ func runApprove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore approve: ticket %s is %s, not ready-for-review", id, t.Status)
 	}
 
-	entryID, _ := ticket.NewEntryID()
+	entryID, err := ticket.NewEntryID()
+	if err != nil {
+		return fmt.Errorf("lore approve: %w", err)
+	}
 	entry := &ticket.ThreadEntry{
 		ID:        entryID,
 		Kind:      ticket.EntryKindComment,

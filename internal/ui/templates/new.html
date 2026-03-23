@@ -1,0 +1,84 @@
+{{define "title"}}New Ticket — Lore{{end}}
+
+{{define "content"}}
+<div class="p-8 max-w-2xl mx-auto">
+  <div class="mb-8">
+    <a href="/tickets" class="text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300">← Tickets</a>
+    <h1 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mt-4">New Ticket</h1>
+    <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Describe the work. Be as specific as you like — agents will read this.</p>
+  </div>
+
+  {{if .Error}}
+  <div class="mb-6 flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-sm text-red-700 dark:text-red-400">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+    </svg>
+    {{.Error}}
+  </div>
+  {{end}}
+
+  <form action="/tickets/new" method="POST" enctype="multipart/form-data" class="space-y-6">
+
+    <div>
+      <label for="desc" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Description</label>
+      <textarea id="desc" name="desc" rows="6" required placeholder="Describe the task, bug, or feature in plain language…"
+        class="w-full px-4 py-3 text-sm bg-white dark:bg-[#1c1c21] border border-zinc-200 dark:border-[#2a2a32] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 resize-none leading-relaxed"
+        oninput="autoResize(this)"></textarea>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+        Attach Image
+        <span class="ml-1.5 text-xs font-normal text-zinc-400 dark:text-zinc-500">(optional)</span>
+      </label>
+      <div id="drop-zone"
+        class="relative border-2 border-dashed border-zinc-200 dark:border-zinc-700 rounded-xl p-8 text-center hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors cursor-pointer"
+        onclick="document.getElementById('image-input').click()"
+        ondragover="event.preventDefault(); this.classList.add('border-indigo-400','dark:border-indigo-500')"
+        ondragleave="this.classList.remove('border-indigo-400','dark:border-indigo-500')"
+        ondrop="handleDrop(event)">
+        <svg class="w-8 h-8 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <p class="text-sm text-zinc-400 dark:text-zinc-500">Drop an image here or <span class="text-indigo-600 dark:text-indigo-400">browse</span></p>
+        <p id="file-name" class="text-xs text-zinc-400 mt-2 hidden"></p>
+        <input id="image-input" type="file" name="image" accept="image/*" class="hidden" onchange="showFileName(this)">
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 pt-2">
+      <button type="submit"
+        class="px-5 py-2.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+        Create Ticket
+      </button>
+      <a href="/tickets" class="px-4 py-2.5 text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors">
+        Cancel
+      </a>
+    </div>
+  </form>
+</div>
+
+<script>
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.max(el.scrollHeight, 144) + 'px';
+  }
+  function showFileName(input) {
+    var el = document.getElementById('file-name');
+    if (input.files && input.files[0]) {
+      el.textContent = input.files[0].name;
+      el.classList.remove('hidden');
+    }
+  }
+  function handleDrop(e) {
+    e.preventDefault();
+    var input = document.getElementById('image-input');
+    var dt = e.dataTransfer;
+    if (dt.files && dt.files[0]) {
+      input.files = dt.files;
+      showFileName(input);
+    }
+    document.getElementById('drop-zone').classList.remove('border-indigo-400');
+  }
+</script>
+{{end}}

@@ -8,18 +8,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var escalateCmd = &cobra.Command{
-	Use:   "escalate <id> <reason>",
+var blockCmd = &cobra.Command{
+	Use:   "block <id> <reason>",
 	Short: "Mark a ticket as blocked with a reason",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runEscalate,
+	RunE:  runBlock,
 }
 
 func init() {
-	rootCmd.AddCommand(escalateCmd)
+	rootCmd.AddCommand(blockCmd)
 }
 
-func runEscalate(cmd *cobra.Command, args []string) error {
+func runBlock(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	gitRoot, err := requireGitRoot(cmd)
 	if err != nil {
@@ -34,14 +34,14 @@ func runEscalate(cmd *cobra.Command, args []string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("lore escalate: %w", err)
+		return fmt.Errorf("lore block: %w", err)
 	}
 
 	fmt.Printf("ticket %s blocked: %s\n", t.ID, reason)
 	em := event.EmitterFromContext(ctx)
-	em.Emit(ctx, event.New(event.EventTicketEscalated, map[string]any{
-		"id":     t.ID,
-		"reason": reason,
+	em.Emit(ctx, event.New(event.EventTicketBlocked, map[string]any{
+		"ticket_id": t.ID,
+		"reason":    reason,
 	}))
 	return nil
 }

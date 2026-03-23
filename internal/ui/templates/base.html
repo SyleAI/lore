@@ -1,0 +1,117 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en" class="h-full dark" id="html-root">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{block "title" .}}Lore{{end}}</title>
+  <script>
+    (function(){
+      var t = localStorage.getItem('lore-theme') || 'dark';
+      if (t === 'light') document.documentElement.classList.remove('dark');
+    })();
+  </script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <style>
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
+    html:not(.dark) ::-webkit-scrollbar-thumb { background: #d4d4d8; }
+.line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+    .line-clamp-3 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  </style>
+</head>
+<body class="h-full flex bg-zinc-50 dark:bg-[#0f0f11] text-zinc-900 dark:text-[#e8e8f0] antialiased" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+
+  <!-- Sidebar -->
+  <aside class="w-56 flex-shrink-0 bg-white dark:bg-[#16161a] border-r border-zinc-200 dark:border-[#2a2a32] flex flex-col h-screen sticky top-0 z-10">
+
+    <!-- Wordmark -->
+    <div class="px-5 py-4 border-b border-zinc-200 dark:border-[#2a2a32]">
+      <a href="/" class="flex items-center gap-2 group">
+        <div class="w-6 h-6 rounded-md bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center flex-shrink-0">
+          <span class="text-white text-xs font-bold">L</span>
+        </div>
+        <span class="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Lore</span>
+      </a>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+
+      <a href="/" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors {{if eq .Page "dashboard"}}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400{{else}}text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200{{end}}">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        Dashboard
+      </a>
+
+      <a href="/tickets" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors {{if eq .Page "tickets"}}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400{{else}}text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200{{end}}">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+        </svg>
+        Tickets
+      </a>
+
+      <a href="/tickets/new" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors {{if eq .Page "new"}}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400{{else}}text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200{{end}}">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        New Ticket
+      </a>
+
+      <a href="/search" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors {{if eq .Page "search"}}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400{{else}}text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200{{end}}">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+        </svg>
+        Search
+      </a>
+
+      <a href="/events" class="nav-link flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors {{if eq .Page "events"}}bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400{{else}}text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-200{{end}}">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        Event Log
+      </a>
+
+    </nav>
+
+    <!-- Footer: repo + theme toggle -->
+    <div class="px-4 py-3 border-t border-zinc-200 dark:border-[#2a2a32] space-y-2">
+      <p class="text-xs text-zinc-400 dark:text-zinc-500 font-mono truncate" title="{{.RepoName}}">{{.RepoName}}</p>
+      <button onclick="toggleTheme()" class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors select-none">
+        <svg id="icon-sun" class="w-3.5 h-3.5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+        </svg>
+        <svg id="icon-moon" class="w-3.5 h-3.5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+        </svg>
+        <span id="theme-label"></span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 min-w-0 overflow-y-auto">
+    {{block "content" .}}{{end}}
+  </main>
+
+  <script>
+    function toggleTheme() {
+      var html = document.getElementById('html-root');
+      var dark = html.classList.contains('dark');
+      html.classList.toggle('dark', !dark);
+      localStorage.setItem('lore-theme', dark ? 'light' : 'dark');
+      updateThemeLabel();
+    }
+    function updateThemeLabel() {
+      var dark = document.getElementById('html-root').classList.contains('dark');
+      var el = document.getElementById('theme-label');
+      if (el) el.textContent = dark ? 'Light mode' : 'Dark mode';
+    }
+    updateThemeLabel();
+  </script>
+</body>
+</html>
+{{end}}

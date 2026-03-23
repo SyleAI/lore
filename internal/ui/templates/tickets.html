@@ -1,0 +1,76 @@
+{{define "title"}}Tickets — Lore{{end}}
+
+{{define "content"}}
+<div class="p-8">
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Tickets</h1>
+      <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">All tickets across the project.</p>
+    </div>
+    <a href="/tickets/new"
+      class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+      </svg>
+      New Ticket
+    </a>
+  </div>
+
+  <!-- Status filter tabs -->
+  {{$f := .StatusFilter}}
+  <div class="flex gap-1 mb-6 border-b border-zinc-200 dark:border-zinc-800">
+    <a href="/tickets" class="px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {{if eq $f ""}}border-indigo-500 text-indigo-600 dark:text-indigo-400{{else}}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200{{end}}">All</a>
+    <a href="/tickets?status=open" class="px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {{if eq $f "open"}}border-indigo-500 text-indigo-600 dark:text-indigo-400{{else}}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200{{end}}">Open</a>
+    <a href="/tickets?status=working" class="px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {{if eq $f "working"}}border-indigo-500 text-indigo-600 dark:text-indigo-400{{else}}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200{{end}}">Working</a>
+    <a href="/tickets?status=blocked" class="px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {{if eq $f "blocked"}}border-indigo-500 text-indigo-600 dark:text-indigo-400{{else}}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200{{end}}">Blocked</a>
+    <a href="/tickets?status=ready-for-review" class="px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {{if eq $f "ready-for-review"}}border-indigo-500 text-indigo-600 dark:text-indigo-400{{else}}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200{{end}}">Ready</a>
+    <a href="/tickets?status=done" class="px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {{if eq $f "done"}}border-indigo-500 text-indigo-600 dark:text-indigo-400{{else}}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200{{end}}">Done</a>
+  </div>
+
+  <!-- Ticket table -->
+  {{if .Tickets}}
+  <div class="bg-white dark:bg-[#1c1c21] border border-zinc-200 dark:border-[#2a2a32] rounded-xl overflow-hidden shadow-sm">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-zinc-100 dark:border-zinc-800">
+          <th class="text-left px-4 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide w-28">Status</th>
+          <th class="text-left px-4 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide w-28">ID</th>
+          <th class="text-left px-4 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Description</th>
+          <th class="text-left px-4 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide w-32">Agent</th>
+          <th class="text-left px-4 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide w-28">Updated</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+        {{range .Tickets}}
+        <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 cursor-pointer transition-colors" onclick="location.href='/tickets/{{.ID}}'">
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{statusBadge .Status}}">
+              {{statusLabel .Status}}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <a href="/tickets/{{.ID}}" class="font-mono text-xs text-indigo-600 dark:text-indigo-400 hover:underline" onclick="event.stopPropagation()">{{.ID}}</a>
+          </td>
+          <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300 max-w-xs">
+            <span class="line-clamp-2">{{.Desc}}</span>
+          </td>
+          <td class="px-4 py-3 text-zinc-500 dark:text-zinc-400 text-xs">
+            {{if .Agent}}{{.Agent}}{{else}}<span class="text-zinc-300 dark:text-zinc-600">—</span>{{end}}
+          </td>
+          <td class="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">{{.Age}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="text-center py-20 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl">
+    <svg class="w-8 h-8 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+    </svg>
+    <p class="text-sm text-zinc-400 dark:text-zinc-600">No tickets found.</p>
+    <a href="/tickets/new" class="mt-3 inline-block text-sm text-indigo-600 dark:text-indigo-400 hover:underline">Create one</a>
+  </div>
+  {{end}}
+</div>
+{{end}}

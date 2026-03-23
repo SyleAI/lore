@@ -23,10 +23,9 @@ A ticket is not a structured form. It is a description of intent in whatever for
 Every ticket has a thread — an append-only sequence of entries written by agents and humans over the life of the ticket. The thread is the execution history.
 
 Thread entries come from:
-- `lore update` — free-form progress note, observation, or decision
+- `lore update` — free-form progress note, observation, decision, or lead context (agents and humans both use this)
 - `lore ask` — a question (same as an update, but emits a `question.asked` event)
 - `lore answer` — an answer to a question (same as an update, but emits a `question.answered` event)
-- `lore comment` — context written by the lead before or during assignment
 - Image attachments — stored as git blobs, referenced by hash in the thread entry
 
 `lore show <id>` returns the full ticket: description, current status, and the complete thread in chronological order. For agents consuming via Claude, image attachments are delivered as base64 in the context payload.
@@ -58,7 +57,6 @@ Thread entries come from:
 ### Coordination (Lead + Human)
 
 **`lore assign <id> --agent <name>`** — lead assigns ticket to a specific agent
-**`lore comment <id> "..."`** — lead writes context onto the ticket before or during assignment
 **`lore tag <id> --question-id <qid> --agent <name>`** — route a question to a specific agent
 **`lore unblock <id>`** — clear escalation; sets status back to `working`
 **`lore approve <id>`** — human approves a high-risk merge
@@ -69,9 +67,7 @@ Thread entries come from:
 
 **Events** — one structured JSON event per meaningful state change
 **`lore events --follow`** — stream the event log
-**`lore run`** — first-party worker loop for Claude Code
-**`lore run --agents <n>`** — run n parallel workers
-**`lore run --lead`** — run in lead mode
+**`lore run`** — first-party worker loop for Claude Code *(deferred to v2 — see below)*
 
 ### Setup
 
@@ -147,7 +143,7 @@ Deferred until real usage data shows it is needed.
 - `lore measure`, `lore consolidate`
 - `lore checkpoint` (criteria progress tracking)
 
-**`lore search`** replaces the knowledge graph. One command, no persistent index, on-demand model call against the full ticket corpus. The lead skill instructs the lead agent to call it before every decision.
+**`lore search`** replaces the knowledge graph. One command, no persistent index, on-demand model call against the full ticket corpus.
 
 **`lore list --closed`** plus `lore show` replaces consolidation. The lead agent reads history and notices patterns. No background service.
 
@@ -180,3 +176,23 @@ refs/tickets/policy           ← merge thresholds, escalation config
 ```
 
 No files in `.tickets/`. No merge conflicts on ticket state. `git clone` transfers everything.
+
+---
+
+## Deferred to v2
+
+These features are intentionally out of scope for v1. They will be designed once there is real usage data to inform the right defaults.
+
+### Agent Skill Templates
+
+`lore init` will not install agent skill files in v1. The question of what the default worker loop and lead loop should look like — what instructions to give Claude, how to structure the prompt, what context to inject — needs to be answered through experimentation, not upfront design.
+
+**What this means for v1:**
+- `lore run` is not shipped. Its behavior depends entirely on the skill template, so shipping it without a validated default would be premature.
+- The skill file drafts (`lore-worker.md`, `lore-lead.md`) remain in the repo as references but are not installed by `lore init`.
+- Agents can still use Lore fully via the CLI — they just need their own prompt/loop to drive it.
+
+**What v2 will add:**
+- Validated default skill templates based on what actually works in practice
+- `lore run` / `lore run --agents <n>` / `lore run --lead` once the skill contract is stable
+- Possibly `lore init --skill <preset>` to choose from multiple validated defaults
