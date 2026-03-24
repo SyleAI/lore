@@ -102,6 +102,10 @@ func printTicket(t *ticket.Ticket, entries []*ticket.ThreadEntry) {
 					caption = e.ImageMIME
 				}
 				fmt.Printf("[%s] %s [image: %s]\n", ts, e.Author, caption)
+			case ticket.EntryKindQuestion:
+				fmt.Printf("[%s] %s (question) [qid:%s]: %s\n", ts, e.Author, e.QuestionID, strings.TrimSpace(e.Text))
+			case ticket.EntryKindAnswer:
+				fmt.Printf("[%s] %s (answer) [qid:%s]: %s\n", ts, e.Author, e.QuestionID, strings.TrimSpace(e.Text))
 			default:
 				fmt.Printf("[%s] %s (%s): %s\n", ts, e.Author, e.Kind, strings.TrimSpace(e.Text))
 			}
