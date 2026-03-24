@@ -186,6 +186,14 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Close the ticket — approval from the UI means done.
+	if _, err := ticketops.CASUpdate(ctx, s.gitRoot, id, func(t *ticket.Ticket) error {
+		t.Status = ticket.StatusDone
+		return nil
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	s.emitter.Emit(ctx, event.New(event.EventTicketApproved, map[string]any{"ticket_id": id, "from": from})) //nolint
 	redirect(w, r, "/tickets/"+id)
 }
