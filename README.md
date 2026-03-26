@@ -95,7 +95,7 @@ lore events --follow
 | `lore answer <id> --question-id <qid> "..."` | Answer an open question |
 | `lore block <id> "reason"` | Mark ticket blocked with a reason |
 | `lore ready <id>` | Signal work is done; sets status to `ready-for-review` |
-| `lore done <id>` | Mark ticket done |
+| `lore close <id>` | Mark ticket done |
 | `lore spawn <id> --from "..."` | Create a child ticket |
 
 ### Coordination (Lead + Human)
@@ -115,6 +115,7 @@ lore events --follow
 | `lore doctor` | Check that the environment is correctly configured |
 | `lore ui` | Start the local web UI (default port 7890) |
 | `lore events --follow` | Stream the event log |
+| `lore purge [--force]` | Delete all tickets and clear the event log |
 
 ---
 
@@ -140,13 +141,60 @@ The UI binds to `localhost` only. Static assets are embedded in the binary — n
 
 ## Status Values
 
+Tickets move through a defined lifecycle. Each transition emits an event.
+
 | Status | Meaning |
 |---|---|
-| `open` | Created, not yet claimed |
-| `working` | Claimed by an agent |
-| `blocked` | Agent is waiting on something |
-| `ready-for-review` | Agent submitted work for human review |
-| `done` | Closed |
+| `open` | Ticket created, not yet claimed by anyone. Any agent can pick it up. |
+| `working` | An agent has claimed the ticket and is actively working on it. Also the state a ticket returns to after rejection. |
+| `blocked` | The agent cannot proceed and is waiting on something external — an answer, a dependency, a human decision. |
+| `ready-for-review` | The agent has finished and submitted the work for review. No further changes expected until approved or rejected. |
+| `done` | Work approved and complete. The ticket moves to `refs/tickets/done/` and is excluded from the active list by default. |
+
+**Approval** is the act of a reviewer (human or lead agent) confirming that the work in a `ready-for-review` ticket actually meets the acceptance criteria. It is a deliberate quality gate — not a formality. A rejected ticket returns to `working` so the agent can revise and resubmit.
+
+---
+
+## Events
+
+Every state change emits a structured JSON event to `.lore/events.log`. Orchestrators tail this file to drive their agent loops. `lore events --follow` streams it live.
+
+Each event has the shape:
+```json
+{"type": "ticket.ready", "ts": "2025-01-15T10:23:41Z", "data": {"id": "a3f9c12d8e1b"}}
+```
+
+### Event Reference
+
+| Event | Emitted when | Key `data` fields |
+|---|---|---|
+| `lore.initialized` | `lore init` completes | `git_root` |
+| `ticket.created` | `lore new` or `lore spawn` | `id`, `description` |
+| `ticket.assigned` | `lore assign` | `id`, `agent` |
+| `ticket.claimed` | `lore claim` | `id`, `agent` |
+| `ticket.updated` | `lore update` (text or image) | `id`; `kind: "image"` if image |
+| `ticket.blocked` | `lore block` | `id`, `reason` |
+| `ticket.unblocked` | `lore unblock` | `id` |
+| `ticket.ready` | `lore ready` | `id` |
+| `ticket.approved` | `lore approve` | `id` |
+| `ticket.rejected` | `lore reject` | `id`, `reason` |
+| `ticket.closed` | `lore close` | `id` |
+| `question.asked` | `lore ask` | `id`, `question_id`, `blocking` |
+| `question.answered` | `lore answer` | `id`, `question_id` |
+| `question.tagged` | `lore tag` | `id`, `question_id` |
+
+### Subscribing
+
+```sh
+# Tail the raw event log
+lore events --follow
+
+# Emit events to stdout as JSON (useful for orchestrators reading stdin)
+lore --json <command>
+
+# Silence events entirely
+lore --quiet <command>
+```
 
 ---
 
