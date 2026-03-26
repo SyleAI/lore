@@ -71,12 +71,10 @@
 
             <!-- Approve button -->
             <div class="flex gap-2">
-              <form action="/tickets/{{.ID}}/approve" method="POST" class="flex-1">
-                <button type="submit"
-                  class="w-full px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">
-                  Approve
-                </button>
-              </form>
+              <button onclick="approveTicket('{{.ID}}')"
+                class="flex-1 px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">
+                Approve
+              </button>
               <!-- Reject expander -->
               <button onclick="toggleReject('{{.ID}}')"
                 class="flex-1 px-3 py-1.5 text-xs font-medium border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors">
@@ -161,6 +159,7 @@
 {{end}}
 
 {{define "dashboard-js"}}
+<div id="toast" class="fixed bottom-6 right-6 z-50 hidden px-4 py-3 rounded-xl text-sm font-medium text-white shadow-lg transition-all"></div>
 <script>
   function toggleReject(id) {
     var el = document.getElementById('reject-form-' + id);
@@ -171,6 +170,32 @@
     var form = document.getElementById('unblock-form-' + id);
     btn.classList.add('hidden');
     form.classList.remove('hidden');
+  }
+  function showToast(msg, color) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl text-sm font-medium text-white shadow-lg ' + color;
+    t.classList.remove('hidden');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function() { t.classList.add('hidden'); }, 3000);
+  }
+  function approveTicket(id) {
+    var card = document.getElementById('rfr-' + id);
+    var btn = card ? card.querySelector('button') : null;
+    if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
+    fetch('/tickets/' + id + '/approve', { method: 'POST' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('request failed');
+        return r.json();
+      })
+      .then(function() {
+        if (card) card.remove();
+        showToast('Ticket ' + id + ' approved', 'bg-green-600');
+      })
+      .catch(function() {
+        if (btn) { btn.disabled = false; btn.textContent = 'Approve'; }
+        showToast('Failed to approve ticket', 'bg-red-600');
+      });
   }
 </script>
 {{end}}

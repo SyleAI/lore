@@ -195,7 +195,8 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.emitter.Emit(ctx, event.New(event.EventTicketApproved, map[string]any{"ticket_id": id, "from": from})) //nolint
-	redirect(w, r, "/tickets/"+id)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"ok":true,"id":%q}`, id)
 }
 
 // handleReject rejects a ready-for-review ticket with a reason.
