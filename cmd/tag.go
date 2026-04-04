@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/loreteam/lore/internal/event"
-	"github.com/loreteam/lore/internal/gitcmd"
-	"github.com/loreteam/lore/internal/ticket"
+	"github.com/loreteam/lore/internal/ticketops"
 	"github.com/spf13/cobra"
 )
 
@@ -37,35 +35,17 @@ func runTag(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	qRef := ticket.QuestionRef(tagQuestionID)
-	qSHA, err := gitcmd.ReadRef(ctx, gitRoot, qRef)
+	qRecord, err := ticketops.LoadQuestion(gitRoot, tagQuestionID)
 	if err != nil {
 		return fmt.Errorf("lore tag: question %s not found", tagQuestionID)
-	}
-	qData, err := gitcmd.ReadBlob(ctx, gitRoot, qSHA)
-	if err != nil {
-		return fmt.Errorf("lore tag: read question: %w", err)
-	}
-
-	var qRecord map[string]any
-	if err := json.Unmarshal(qData, &qRecord); err != nil {
-		return fmt.Errorf("lore tag: parse question: %w", err)
 	}
 	if answered, _ := qRecord["answered"].(bool); answered {
 		return fmt.Errorf("lore tag: question %s is already answered", tagQuestionID)
 	}
 
 	qRecord["directed_to"] = tagAgent
-	newQData, err := json.Marshal(qRecord)
-	if err != nil {
-		return fmt.Errorf("lore tag: marshal question: %w", err)
-	}
-	newQSHA, err := gitcmd.WriteBlob(ctx, gitRoot, newQData)
-	if err != nil {
-		return fmt.Errorf("lore tag: write question blob: %w", err)
-	}
-	if err := gitcmd.WriteRef(ctx, gitRoot, qRef, newQSHA); err != nil {
-		return fmt.Errorf("lore tag: update question ref: %w", err)
+	if err := ticketops.SaveQuestion(gitRoot, qRecord); err != nil {
+		return fmt.Errorf("lore tag: update question: %w", err)
 	}
 
 	ticketID, _ := qRecord["ticket_id"].(string)

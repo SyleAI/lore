@@ -10,7 +10,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/loreteam/lore/internal/event"
-	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
 	"github.com/loreteam/lore/internal/ticketops"
 )
@@ -445,11 +444,11 @@ func (s *Server) handleEventLog(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "events", EventsData{BaseData: s.base("events")})
 }
 
-// attachImage writes the image bytes as a git blob and appends an image thread entry.
-// Consistent with the CLI: the blob SHA is stored in ImageSHA and served via /blobs/{sha}.
+// attachImage stores the image bytes as a content-addressed blob and appends an image thread entry.
+// The blob SHA is stored in ImageSHA and served via /blobs/{sha}.
 func (s *Server) attachImage(ctx context.Context, t *ticket.Ticket, data []byte, mime, caption string) {
 	from := s.resolveAgent(ctx)
-	imgSHA, err := gitcmd.WriteBlob(ctx, s.gitRoot, data)
+	imgSHA, err := ticketops.WriteBlob(s.gitRoot, data)
 	if err != nil {
 		return
 	}
@@ -469,10 +468,10 @@ func (s *Server) attachImage(ctx context.Context, t *ticket.Ticket, data []byte,
 	ticketops.AppendThread(ctx, s.gitRoot, t, entry) //nolint
 }
 
-// handleBlob serves a raw git blob by SHA. Used to render images stored by any path (CLI or UI).
+// handleBlob serves a content-addressed blob by SHA. Used to render images stored by the CLI or UI.
 func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	sha := r.PathValue("sha")
-	data, err := gitcmd.ReadBlob(r.Context(), s.gitRoot, sha)
+	data, err := ticketops.LoadBlob(s.gitRoot, sha)
 	if err != nil {
 		http.Error(w, "blob not found", http.StatusNotFound)
 		return

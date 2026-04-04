@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/loreteam/lore/internal/event"
-	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
+	"github.com/loreteam/lore/internal/ticketops"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +57,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("lore update: read image: %w", err)
 		}
-		imgSHA, err := gitcmd.WriteBlob(ctx, gitRoot, imgData)
+		imgSHA, err := ticketops.WriteBlob(gitRoot, imgData)
 		if err != nil {
 			return fmt.Errorf("lore update: store image: %w", err)
 		}

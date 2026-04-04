@@ -32,12 +32,6 @@ func TestNewEntryID(t *testing.T) {
 	assert.Equal(t, "e-", eid[:2])
 }
 
-func TestRefs(t *testing.T) {
-	assert.Equal(t, "refs/tickets/open/abc123", ticket.OpenRef("abc123"))
-	assert.Equal(t, "refs/tickets/done/abc123", ticket.DoneRef("abc123"))
-	assert.Equal(t, "refs/tickets/questions/q-abc", ticket.QuestionRef("q-abc"))
-}
-
 func TestValidStatus(t *testing.T) {
 	valid := []ticket.Status{
 		ticket.StatusOpen,
@@ -62,7 +56,6 @@ func TestMarshalUnmarshal(t *testing.T) {
 		Desc:      "Fix the broken thing in auth",
 		Status:    ticket.StatusOpen,
 		Agent:     "agent-1",
-		Thread:    []string{"sha1abc", "sha2def"},
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -78,7 +71,6 @@ func TestMarshalUnmarshal(t *testing.T) {
 	assert.Equal(t, orig.Desc, got.Desc)
 	assert.Equal(t, orig.Status, got.Status)
 	assert.Equal(t, orig.Agent, got.Agent)
-	assert.Equal(t, orig.Thread, got.Thread)
 	assert.True(t, orig.CreatedAt.Equal(got.CreatedAt))
 	assert.True(t, orig.UpdatedAt.Equal(got.UpdatedAt))
 }

@@ -24,13 +24,22 @@ func TestInit(t *testing.T) {
 	out := run(t, dir, 0, "init")
 	assert.Contains(t, out, "initialized")
 
-	// .lore/ directory must exist.
-	_, err := os.Stat(filepath.Join(dir, ".lore"))
-	assert.NoError(t, err)
+	// .tickets/ subdirectories must exist.
+	for _, sub := range []string{"open", "done", "threads", "questions", "blobs"} {
+		_, err := os.Stat(filepath.Join(dir, ".tickets", sub))
+		assert.NoError(t, err, ".tickets/%s should exist", sub)
+	}
 
-	// .lore/config.yaml must exist.
-	_, err = os.Stat(filepath.Join(dir, ".lore", "config.yaml"))
-	assert.NoError(t, err)
+	// .lore/config.yaml and policy.yaml must exist.
+	for _, f := range []string{"config.yaml", "policy.yaml"} {
+		_, err := os.Stat(filepath.Join(dir, ".lore", f))
+		assert.NoError(t, err, ".lore/%s should exist", f)
+	}
+
+	// .gitattributes must contain the -diff line for .tickets/.
+	gaData, err := os.ReadFile(filepath.Join(dir, ".gitattributes"))
+	require.NoError(t, err, ".gitattributes should exist")
+	assert.Contains(t, string(gaData), ".tickets/** -diff")
 }
 
 func TestInit_AlreadyInitialized(t *testing.T) {

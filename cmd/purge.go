@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/spf13/cobra"
 )
 
@@ -24,8 +23,8 @@ Use --tickets or --orchestrators to limit scope.`,
 }
 
 var (
-	flagForce        bool
-	flagTickets      bool
+	flagForce         bool
+	flagTickets       bool
 	flagOrchestrators bool
 )
 
@@ -73,29 +72,29 @@ func runPurge(cmd *cobra.Command, args []string) error {
 	loreDir := loreDirFromContext(ctx)
 
 	if doTickets {
-		openRefs, err := gitcmd.ListRefs(ctx, gitRoot, "refs/tickets/open/")
-		if err != nil {
-			return fmt.Errorf("lore purge: %w", err)
-		}
-		doneRefs, err := gitcmd.ListRefs(ctx, gitRoot, "refs/tickets/done/")
-		if err != nil {
-			return fmt.Errorf("lore purge: %w", err)
-		}
+		ticketsDir := filepath.Join(gitRoot, ".tickets")
 
+		// Remove per-ticket subdirs, preserving the .tickets/ root and structure dirs.
 		deleted := 0
-		for ref := range openRefs {
-			if err := gitcmd.DeleteRef(ctx, gitRoot, ref); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to delete ref %s: %v\n", ref, err)
+		for _, sub := range []string{"open", "done", "threads", "questions", "blobs", ".locks"} {
+			dir := filepath.Join(ticketsDir, sub)
+			entries, err := os.ReadDir(dir)
+			if os.IsNotExist(err) {
 				continue
 			}
-			deleted++
-		}
-		for ref := range doneRefs {
-			if err := gitcmd.DeleteRef(ctx, gitRoot, ref); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to delete ref %s: %v\n", ref, err)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: read %s: %v\n", dir, err)
 				continue
 			}
-			deleted++
+			for _, e := range entries {
+				if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: remove %s: %v\n", e.Name(), err)
+					continue
+				}
+				if sub == "open" || sub == "done" {
+					deleted++
+				}
+			}
 		}
 
 		if loreDir != "" {

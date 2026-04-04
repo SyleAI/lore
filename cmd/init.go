@@ -1,12 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/loreteam/lore/internal/config"
 	"github.com/loreteam/lore/internal/event"
@@ -23,8 +21,8 @@ var initCmd = &cobra.Command{
 	Short: "Initialize lore in the current git repository",
 	Long: `init sets up lore storage in the current git repository.
 
-It writes default policy to refs/tickets/policy, creates the .lore/
-configuration directory, and installs Claude skill files under .claude/skills/.`,
+It creates the .tickets/ directory structure, writes default policy to
+.lore/policy.yaml, and sets up the .lore/ configuration directory.`,
 	RunE: runInit,
 }
 
@@ -56,30 +54,42 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore init: %w", err)
 	}
 
+	ticketsDir := filepath.Join(gitRoot, ".tickets")
 	if !initForce {
-		_, refErr := gitcmd.ReadRef(ctx, gitRoot, "refs/tickets/policy")
-		if refErr == nil {
+		if _, err := os.Stat(ticketsDir); err == nil {
 			return fmt.Errorf("lore init: already initialized (use --force to reinitialize)")
 		}
 	}
 
 	loreDir := filepath.Join(gitRoot, ".lore")
 
-	// Write default policy blob → ref.
-	policySHA, err := gitcmd.WriteBlob(ctx, gitRoot, templates.DefaultPolicy)
-	if err != nil {
-		return fmt.Errorf("lore init: write policy blob: %w", err)
+	// Create .tickets/ subdirectories.
+	for _, sub := range []string{"open", "done", "threads", "questions", "blobs", ".locks"} {
+		dir := filepath.Join(ticketsDir, sub)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("lore init: create .tickets/%s: %w", sub, err)
+		}
 	}
-	if err := gitcmd.WriteRef(ctx, gitRoot, "refs/tickets/policy", policySHA); err != nil {
-		return fmt.Errorf("lore init: write policy ref: %w", err)
-	}
-	logf("  created refs/tickets/policy (%s)\n", policySHA[:8])
+	logf("  created .tickets/\n")
 
-	// Create .lore/ directory.
+	// Write .gitattributes to suppress diff/log noise for .tickets/.
+	gaPath := filepath.Join(gitRoot, ".gitattributes")
+	gaLine := ".tickets/** -diff\n"
+	if err := appendLineIfMissing(gaPath, gaLine); err != nil {
+		logf("  warning: could not update .gitattributes: %v\n", err)
+	} else {
+		logf("  updated .gitattributes (.tickets/** -diff)\n")
+	}
+
+	// Write default policy to .lore/policy.yaml.
 	if err := os.MkdirAll(loreDir, 0755); err != nil {
 		return fmt.Errorf("lore init: create .lore dir: %w", err)
 	}
-	logf("  created .lore/\n")
+	policyPath := filepath.Join(loreDir, "policy.yaml")
+	if err := os.WriteFile(policyPath, templates.DefaultPolicy, 0644); err != nil {
+		return fmt.Errorf("lore init: write .lore/policy.yaml: %w", err)
+	}
+	logf("  created .lore/policy.yaml\n")
 
 	// Write .lore/config.yaml.
 	configPath := filepath.Join(loreDir, "config.yaml")
@@ -89,26 +99,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	logf("  created .lore/config.yaml\n")
 
 	// Write .lore/.gitignore.
-	gitignoreContent := "events.log\n"
 	gitignorePath := filepath.Join(loreDir, ".gitignore")
-	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+	if err := os.WriteFile(gitignorePath, []byte("events.log\n"), 0644); err != nil {
 		return fmt.Errorf("lore init: write .lore/.gitignore: %w", err)
 	}
 	logf("  created .lore/.gitignore\n")
-
-	// Add fetch refspec to each remote.
-	remotes, remoteErr := listRemotes(ctx, gitRoot)
-	if remoteErr != nil {
-		logf("  warning: could not list remotes: %v\n", remoteErr)
-	} else {
-		for _, remote := range remotes {
-			if err := ensureTicketRefspec(ctx, gitRoot, remote); err != nil {
-				logf("  warning: could not update remote %s: %v\n", remote, err)
-			} else {
-				logf("  updated remote %s with refs/tickets/* refspec\n", remote)
-			}
-		}
-	}
 
 	em := event.EmitterFromContext(ctx)
 	em.Emit(ctx, event.New(event.EventLoreInitialized, map[string]any{"git_root": gitRoot}))
@@ -117,41 +112,63 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func listRemotes(ctx context.Context, gitRoot string) ([]string, error) {
-	out, err := execGit(ctx, gitRoot, "remote")
-	if err != nil {
-		return nil, err
+// appendLineIfMissing appends line to path if it isn't already present.
+func appendLineIfMissing(path, line string) error {
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
 	}
-	var remotes []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			remotes = append(remotes, line)
+	content := string(existing)
+	for _, l := range splitLines(content) {
+		if l == trimNewline(line) {
+			return nil // already present
 		}
 	}
-	return remotes, nil
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	_, werr := f.WriteString(line)
+	cerr := f.Close()
+	if werr != nil {
+		return werr
+	}
+	return cerr
 }
 
-func ensureTicketRefspec(ctx context.Context, gitRoot, remote string) error {
-	refspec := "+refs/tickets/*:refs/tickets/*"
-	configKey := fmt.Sprintf("remote.%s.fetch", remote)
-
-	out, err := execGit(ctx, gitRoot, "config", "--get-all", configKey)
-	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if strings.TrimSpace(line) == refspec {
-				return nil
-			}
+func splitLines(s string) []string {
+	var lines []string
+	for _, l := range splitNewlines(s) {
+		if l != "" {
+			lines = append(lines, l)
 		}
 	}
+	return lines
+}
 
-	_, err = execGit(ctx, gitRoot, "config", "--add", configKey, refspec)
-	return err
+func splitNewlines(s string) []string {
+	var lines []string
+	start := 0
+	for i, c := range s {
+		if c == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+func trimNewline(s string) string {
+	if len(s) > 0 && s[len(s)-1] == '\n' {
+		return s[:len(s)-1]
+	}
+	return s
 }
 
 func runDoctor(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-
 	gitRoot, err := gitcmd.FindGitRoot(".")
 	if err != nil {
 		return fmt.Errorf("lore doctor: %w", err)
@@ -169,27 +186,24 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	checkYAMLBlob := func(ref, label string) {
-		sha, err := gitcmd.ReadRef(ctx, gitRoot, ref)
-		if err != nil {
-			check(label, false, err.Error())
-			return
-		}
-		data, err := gitcmd.ReadBlob(ctx, gitRoot, sha)
-		if err != nil {
-			check(label, false, err.Error())
-			return
-		}
+	// Check .tickets/ directory.
+	_, ticketsErr := os.Stat(filepath.Join(gitRoot, ".tickets", "open"))
+	check(".tickets/open/ exists", ticketsErr == nil, ".tickets/open/ not found — run lore init")
+
+	// Check .lore/policy.yaml.
+	policyData, policyErr := os.ReadFile(filepath.Join(loreDir, "policy.yaml"))
+	if policyErr != nil {
+		check(".lore/policy.yaml", false, policyErr.Error())
+	} else {
 		var obj map[string]any
-		if err := yaml.Unmarshal(data, &obj); err != nil {
-			check(label, false, err.Error())
-			return
+		if yamlErr := yaml.Unmarshal(policyData, &obj); yamlErr != nil {
+			check(".lore/policy.yaml", false, yamlErr.Error())
+		} else {
+			check(".lore/policy.yaml", true, "")
 		}
-		check(label, true, "")
 	}
 
-	checkYAMLBlob("refs/tickets/policy", "refs/tickets/policy")
-
+	// Check .lore/config.yaml.
 	configData, configErr := os.ReadFile(filepath.Join(loreDir, "config.yaml"))
 	if configErr != nil {
 		check(".lore/config.yaml", false, configErr.Error())

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
+	"github.com/loreteam/lore/internal/ticketops"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +51,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func printTicketJSON(ctx context.Context, gitRoot string, t *ticket.Ticket, entries []*ticket.ThreadEntry) error {
+func printTicketJSON(_ context.Context, gitRoot string, t *ticket.Ticket, entries []*ticket.ThreadEntry) error {
 	type jsonEntry struct {
 		ID         string `json:"id"`
 		Kind       string `json:"kind"`
@@ -77,7 +77,7 @@ func printTicketJSON(ctx context.Context, gitRoot string, t *ticket.Ticket, entr
 			ImageMIME:  e.ImageMIME,
 		}
 		if e.Kind == ticket.EntryKindImage && e.ImageSHA != "" {
-			imgData, err := gitcmd.ReadBlob(ctx, gitRoot, e.ImageSHA)
+			imgData, err := ticketops.LoadBlob(gitRoot, e.ImageSHA)
 			if err == nil {
 				je.ImageData = "data:" + e.ImageMIME + ";base64," + base64.StdEncoding.EncodeToString(imgData)
 			}
