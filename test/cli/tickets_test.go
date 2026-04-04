@@ -1,6 +1,8 @@
 package cli_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,6 +16,57 @@ func TestNew(t *testing.T) {
 	dir := newRepo(t)
 	out := run(t, dir, 0, "new", "--from", "fix the auth timeout")
 	assert.Contains(t, out, "created ticket")
+}
+
+func TestTicketStoredOnDisk(t *testing.T) {
+	dir := newRepo(t)
+	id := newTicket(t, dir, "verify disk storage")
+
+	// Ticket YAML must exist in .tickets/open/.
+	ticketPath := filepath.Join(dir, ".tickets", "open", id+".yaml")
+	_, err := os.Stat(ticketPath)
+	assert.NoError(t, err, "expected ticket file at %s", ticketPath)
+
+	// After close, ticket must move to .tickets/done/.
+	run(t, dir, 0, "close", id)
+	_, err = os.Stat(filepath.Join(dir, ".tickets", "done", id+".yaml"))
+	assert.NoError(t, err, "expected ticket in done/ after close")
+	_, err = os.Stat(ticketPath)
+	assert.True(t, os.IsNotExist(err), "ticket should be removed from open/ after close")
+}
+
+func TestThreadStoredOnDisk(t *testing.T) {
+	dir := newRepo(t)
+	id := newTicket(t, dir, "thread disk check")
+
+	run(t, dir, 0, "update", id, "progress note")
+
+	// At least one JSON file must exist under .tickets/threads/<id>/.
+	threadDir := filepath.Join(dir, ".tickets", "threads", id)
+	entries, err := os.ReadDir(threadDir)
+	require.NoError(t, err, "thread directory should exist")
+	var jsonFiles []string
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".json" {
+			jsonFiles = append(jsonFiles, e.Name())
+		}
+	}
+	assert.NotEmpty(t, jsonFiles, "expected at least one thread entry file")
+}
+
+func TestQuestionStoredOnDisk(t *testing.T) {
+	dir := newRepo(t)
+	id := newTicket(t, dir, "question disk check")
+
+	askOut := run(t, dir, 0, "ask", id, "which approach?", "--from", "agent-1")
+	parts := strings.Fields(askOut)
+	require.GreaterOrEqual(t, len(parts), 2)
+	qid := parts[1]
+
+	// Question JSON must exist in .tickets/questions/.
+	qPath := filepath.Join(dir, ".tickets", "questions", qid+".json")
+	_, err := os.Stat(qPath)
+	assert.NoError(t, err, "expected question file at %s", qPath)
 }
 
 func TestNew_EmptyDescription(t *testing.T) {
