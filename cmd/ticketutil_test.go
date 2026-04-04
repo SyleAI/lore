@@ -101,14 +101,12 @@ func TestAppendThread(t *testing.T) {
 		Text:      "started working on the auth handler",
 	}
 
-	updated, err := appendThread(ctx, dir, tkt, entry)
+	_, err = appendThread(ctx, dir, tkt, entry)
 	require.NoError(t, err)
-	assert.Len(t, updated.Thread, 1)
 
 	// Load thread back.
 	loaded, err := loadTicket(ctx, dir, tkt.ID)
 	require.NoError(t, err)
-	assert.Len(t, loaded.Thread, 1)
 
 	entries, err := loadThread(ctx, dir, loaded)
 	require.NoError(t, err)

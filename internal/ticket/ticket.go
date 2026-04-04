@@ -41,7 +41,7 @@ const (
 )
 
 // ThreadEntry is a single append-only entry in a ticket's thread.
-// Stored as a JSON blob in git object storage; referenced by SHA from the ticket.
+// Stored as a JSON file under .tickets/threads/<ticket-id>/.
 type ThreadEntry struct {
 	ID         string    `json:"id"`
 	Kind       EntryKind `json:"kind"`
@@ -68,8 +68,7 @@ func UnmarshalEntry(data []byte) (*ThreadEntry, error) {
 	return &e, nil
 }
 
-// Ticket is the core data type stored in git object storage.
-// Thread holds an ordered list of git blob SHAs, each pointing to a ThreadEntry.
+// Ticket is the core data type stored in .tickets/ file storage.
 type Ticket struct {
 	ID          string    `yaml:"id"`
 	Desc        string    `yaml:"desc"`
@@ -77,24 +76,8 @@ type Ticket struct {
 	Agent       string    `yaml:"agent,omitempty"`
 	Parent      string    `yaml:"parent,omitempty"`
 	BlockReason string    `yaml:"block_reason,omitempty"`
-	Thread      []string  `yaml:"thread,omitempty"` // ordered list of entry blob SHAs
 	CreatedAt   time.Time `yaml:"created_at"`
 	UpdatedAt   time.Time `yaml:"updated_at"`
-}
-
-// OpenRef returns the git ref path for an open/active ticket.
-func OpenRef(id string) string {
-	return "refs/tickets/open/" + id
-}
-
-// DoneRef returns the git ref path for a closed ticket.
-func DoneRef(id string) string {
-	return "refs/tickets/done/" + id
-}
-
-// QuestionRef returns the git ref path for a question index entry.
-func QuestionRef(qid string) string {
-	return "refs/tickets/questions/" + qid
 }
 
 // NewID generates a random 12-hex-char ticket ID.

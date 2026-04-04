@@ -1,13 +1,12 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/loreteam/lore/internal/event"
-	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
+	"github.com/loreteam/lore/internal/ticketops"
 	"github.com/spf13/cobra"
 )
 
@@ -84,23 +83,16 @@ func runAsk(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write question index entry.
-	qRecord, err := json.Marshal(map[string]any{
+	qRecord := map[string]any{
 		"qid":       qid,
 		"ticket_id": id,
 		"text":      questionText,
 		"asked_at":  time.Now().UTC(),
 		"answered":  false,
 		"blocking":  askBlock,
-	})
-	if err != nil {
-		return fmt.Errorf("lore ask: marshal question record: %w", err)
 	}
-	qSHA, err := gitcmd.WriteBlob(ctx, gitRoot, qRecord)
-	if err != nil {
-		return fmt.Errorf("lore ask: write question blob: %w", err)
-	}
-	if err := gitcmd.WriteRef(ctx, gitRoot, ticket.QuestionRef(qid), qSHA); err != nil {
-		return fmt.Errorf("lore ask: write question ref: %w", err)
+	if err := ticketops.SaveQuestion(gitRoot, qRecord); err != nil {
+		return fmt.Errorf("lore ask: save question: %w", err)
 	}
 
 	fmt.Printf("question %s posted on ticket %s\n", qid, t.ID)

@@ -1,13 +1,12 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/loreteam/lore/internal/event"
-	"github.com/loreteam/lore/internal/gitcmd"
 	"github.com/loreteam/lore/internal/ticket"
+	"github.com/loreteam/lore/internal/ticketops"
 	"github.com/spf13/cobra"
 )
 
@@ -46,28 +45,16 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore answer: %w", err)
 	}
 
-	// Verify the question exists in the questions index.
-	qRef := ticket.QuestionRef(answerQuestionID)
-	qSHA, err := gitcmd.ReadRef(ctx, gitRoot, qRef)
+	// Verify the question exists and belongs to this ticket.
+	qRecord, err := ticketops.LoadQuestion(gitRoot, answerQuestionID)
 	if err != nil {
 		return fmt.Errorf("lore answer: question %s not found", answerQuestionID)
 	}
-	qData, err := gitcmd.ReadBlob(ctx, gitRoot, qSHA)
-	if err != nil {
-		return fmt.Errorf("lore answer: read question: %w", err)
+	ticketID, _ := qRecord["ticket_id"].(string)
+	if ticketID != id {
+		return fmt.Errorf("lore answer: question %s belongs to ticket %s, not %s", answerQuestionID, ticketID, id)
 	}
-	var qRecord struct {
-		QID      string `json:"qid"`
-		TicketID string `json:"ticket_id"`
-		Answered bool   `json:"answered"`
-	}
-	if err := json.Unmarshal(qData, &qRecord); err != nil {
-		return fmt.Errorf("lore answer: parse question record: %w", err)
-	}
-	if qRecord.TicketID != id {
-		return fmt.Errorf("lore answer: question %s belongs to ticket %s, not %s", answerQuestionID, qRecord.TicketID, id)
-	}
-	if qRecord.Answered {
+	if answered, _ := qRecord["answered"].(bool); answered {
 		return fmt.Errorf("lore answer: question %s is already answered", answerQuestionID)
 	}
 
@@ -89,18 +76,10 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lore answer: %w", err)
 	}
 
-	// Mark question as answered in the index.
-	qRecord.Answered = true
-	newQData, err := json.Marshal(qRecord)
-	if err != nil {
-		return fmt.Errorf("lore answer: marshal question record: %w", err)
-	}
-	newQSHA, err := gitcmd.WriteBlob(ctx, gitRoot, newQData)
-	if err != nil {
-		return fmt.Errorf("lore answer: write question blob: %w", err)
-	}
-	if err := gitcmd.WriteRef(ctx, gitRoot, qRef, newQSHA); err != nil {
-		return fmt.Errorf("lore answer: update question ref: %w", err)
+	// Mark question as answered.
+	qRecord["answered"] = true
+	if err := ticketops.SaveQuestion(gitRoot, qRecord); err != nil {
+		return fmt.Errorf("lore answer: update question: %w", err)
 	}
 
 	// If ticket is blocked, unblock it now that the question is answered.
